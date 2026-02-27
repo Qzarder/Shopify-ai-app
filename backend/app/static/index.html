@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopify AI Importer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 flex items-center justify-center min-h-screen">
+
+    <div class="bg-white p-8 rounded-xl shadow-lg max-w-lg w-full">
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">Shopify AI Importer</h1>
+        <p class="text-gray-500 mb-6">Upload your messy CSV. Let AI do the magic.</p>
+
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Tone of Voice (AI Copywriter)</label>
+            <select id="tovSelector" class="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="auto">🤖 Auto-Detect (Best for mixed catalogs)</option>
+                <option value="tech">💻 Tech & Auto (Specs & features)</option>
+                <option value="beauty">✨ Beauty & Fashion (Luxurious & sensory)</option>
+                <option value="sales">🛒 Aggressive Sales (Problem-solving)</option>
+            </select>
+        </div>
+
+        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50 mb-6 transition-all duration-300" id="dropZone">
+            <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"/>
+        </div>
+
+        <button id="startBtn" onclick="uploadFile()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+            Start AI Magic ✨
+        </button>
+
+        <div id="progressArea" class="hidden mt-6">
+            <div class="flex justify-between text-sm text-gray-600 mb-1">
+                <span id="statusText">Mapping columns...</span>
+                <span id="percentageText">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <div id="actionButtons" class="hidden mt-6 flex flex-col space-y-3">
+            <a id="downloadBtn" target="_blank" class="text-center w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 cursor-pointer shadow-md">
+                ⬇️ Download Ready CSV
+            </a>
+            <button onclick="resetUI()" class="text-center w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-4 rounded-lg transition duration-200">
+                🔄 Process Another File
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentFileId = null;
+
+        // Сброс интерфейса при выборе нового файла
+        document.getElementById('csvFile').addEventListener('change', resetUI);
+
+        function resetUI() {
+            document.getElementById('actionButtons').classList.add('hidden');
+            document.getElementById('progressArea').classList.add('hidden');
+            document.getElementById('startBtn').classList.remove('hidden');
+            
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').className = "bg-blue-600 h-2.5 rounded-full transition-all duration-300";
+            
+            const statusText = document.getElementById('statusText');
+            statusText.className = "text-sm text-gray-600 mb-1";
+            statusText.innerText = "Mapping columns...";
+            
+            document.getElementById('percentageText').innerText = "0%";
+            currentFileId = null;
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('csvFile');
+            const tovSelector = document.getElementById('tovSelector');
+            
+            if (fileInput.files.length === 0) {
+                alert("Please select a CSV file first.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+            formData.append("tov", tovSelector.value); 
+
+            document.getElementById('startBtn').classList.add('hidden');
+            document.getElementById('progressArea').classList.remove('hidden');
+            document.getElementById('statusText').innerText = "Uploading...";
+
+            try {
+                const response = await fetch('/upload/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    const statusText = document.getElementById('statusText');
+                    statusText.innerText = "❌ " + data.error;
+                    statusText.classList.add("text-red-600", "font-bold");
+                    document.getElementById('progressBar').classList.replace("bg-blue-600", "bg-red-500");
+                    document.getElementById('progressBar').style.width = '100%';
+                    document.getElementById('percentageText').innerText = "Error";
+                    return; 
+                }
+
+                currentFileId = data.file_id;
+                pollStatus();
+            } catch (e) {
+                alert("Error connecting to server.");
+            }
+        }
+
+        async function pollStatus() {
+            if (!currentFileId) return; 
+
+            try {
+                const res = await fetch(`/status/${currentFileId}`);
+                const data = await res.json();
+
+                if (data.status === 'mapping') {
+                    document.getElementById('statusText').innerText = "AI is mapping columns...";
+                } else if (data.status === 'cleaning') {
+                    const percent = Math.round((data.current / data.total) * 100);
+                    document.getElementById('statusText').innerText = `AI Copywriter is writing... (${data.current}/${data.total})`;
+                    document.getElementById('progressBar').style.width = percent + '%';
+                    document.getElementById('percentageText').innerText = percent + '%';
+                } else if (data.status === 'completed') {
+                    document.getElementById('statusText').innerText = "Done!";
+                    document.getElementById('progressBar').style.width = '100%';
+                    document.getElementById('percentageText').innerText = '100%';
+                    
+                    // Показываем блок с кнопками скачивания и ресета
+                    document.getElementById('downloadBtn').href = `/download/${currentFileId}`;
+                    document.getElementById('actionButtons').classList.remove('hidden');
+                    return; 
+                } else if (data.status === 'error') {
+                    const statusText = document.getElementById('statusText');
+                    statusText.innerText = "Error: " + data.error;
+                    statusText.classList.add("text-red-600", "font-bold");
+                    document.getElementById('progressBar').classList.replace("bg-blue-600", "bg-red-500");
+                    return;
+                }
+            } catch (e) {
+                console.error("Polling error", e);
+            }
+
+            setTimeout(pollStatus, 1000);
+        }
+    </script>
+</body>
+</html>

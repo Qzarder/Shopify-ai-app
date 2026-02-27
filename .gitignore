@@ -1,0 +1,19 @@
+# Секреты
+.env
+
+# Виртуальное окружение
+venv/
+env/
+.venv/
+.vscode/
+
+# Кэш питона
+__pycache__/
+*.pyc
+
+# Папки с файлами пользователей и кэш
+uploads/
+outputs/
+html_cache.json
+user_limits.json
+csv-magic-cleaner/
