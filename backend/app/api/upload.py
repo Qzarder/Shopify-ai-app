@@ -2,16 +2,22 @@ from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form
 from fastapi.responses import JSONResponse
 import uuid
 import os
+from pathlib import Path
 from app.services.csv_processor import process_csv_file
 from app.services.state import processing_status
 from app.services.limits import check_and_update_limit 
 
 router = APIRouter(prefix="/upload", tags=["upload"]) 
 
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "outputs"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# --- АБСОЛЮТНЫЕ ПУТИ ---
+# Вычисляем точный путь до папки backend (на 3 уровня выше этого файла)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+OUTPUT_DIR = BASE_DIR / "outputs"
+
+# Железобетонно создаем папки
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/")
 async def upload_file(
@@ -22,8 +28,10 @@ async def upload_file(
     merchant_id = "merchant_test_001" 
 
     file_id = str(uuid.uuid4())
-    input_path = f"{UPLOAD_DIR}/{file_id}.csv"
-    output_path = f"{OUTPUT_DIR}/shopify_ready_{file_id}.csv"
+    
+    # Формируем строковые пути для процессора
+    input_path = str(UPLOAD_DIR / f"{file_id}.csv")
+    output_path = str(OUTPUT_DIR / f"shopify_ready_{file_id}.csv")
     
     # 1. Читаем файл в память ОДИН РАЗ
     content = await file.read()

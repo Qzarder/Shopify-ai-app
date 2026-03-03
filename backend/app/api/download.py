@@ -7,20 +7,21 @@ from fastapi.responses import FileResponse
 
 router = APIRouter()
 
-# ИСПРАВЛЕНО: Указываем ту же папку, куда процессор сохраняет результат
-PROCESSED_DIR = Path("tmp/output")
+# --- АБСОЛЮТНЫЕ ПУТИ (Точно такие же как в upload.py) ---
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+OUTPUT_DIR = BASE_DIR / "outputs"
 
 @router.get("/download/{file_id}")
 def download_file(file_id: str):
-    # ИСПРАВЛЕНО: Имя файла точно совпадает с тем, что генерирует процессор
-    path = PROCESSED_DIR / f"{file_id}_cleaned.csv"
+    # ИСПРАВЛЕНО: Имя файла строго совпадает с тем, что генерирует процессор
+    path = OUTPUT_DIR / f"shopify_ready_{file_id}.csv"
     
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found or still processing")
 
     # Отдаем файл клиенту
     return FileResponse(
-        path,
+        path=str(path),
         media_type="text/csv",
         filename="shopify_ready_import.csv" # Красивое имя файла, которое увидит юзер при скачивании
     )
