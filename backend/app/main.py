@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+
 # Загружаем переменные окружения в первую очередь
 load_dotenv()
 
@@ -18,6 +19,8 @@ WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 from app.api import checkout, download, process, health, upload
 from app.api.status import router as status_router
 from app.services.payment_store import mark_paid
+from app.services.limits import check_and_update_limit
+from fastapi.responses import JSONResponse # Добавь JSONResponse, если его нет
 
 # ---------- PATHS ----------
 BASE_DIR = Path(__file__).resolve().parent  # папка app/
@@ -100,6 +103,8 @@ async def stripe_webhook(request: Request):
             print("⚠️ WEBHOOK WARNING: file_id not found in session")
 
     return {"status": "ok"}
+
+
 
 # ---------- ROUTERS ----------
 # Подключаем все остальные эндпоинты

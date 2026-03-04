@@ -22,11 +22,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/")
 async def upload_file(
     background_tasks: BackgroundTasks, 
+    merchant_id: str = Form(...),  # <-- Перенесли сюда (без дефолтного значения)
     file: UploadFile = File(...),
-    tov: str = Form("auto")
+    tov: str = Form("auto")        # <-- С дефолтным значением идет в конце
 ):
-    merchant_id = "merchant_test_001" 
-
     file_id = str(uuid.uuid4())
     
     # Формируем строковые пути для процессора
@@ -52,7 +51,8 @@ async def upload_file(
     if not limit_check["allowed"]:
         error_msg = f"Limit exceeded! You used {limit_check['used']}/{limit_check['limit']} items. Cannot process {limit_check['requested']} new items. Please upgrade to Pro."
         print(f"DEBUG: LIMIT HIT - {error_msg}")
-        return JSONResponse(status_code=400, content={"error": error_msg})
+        # Добавил merchant_id в ответ, чтобы фронтенд знал, кого именно просить оплатить
+        return JSONResponse(status_code=400, content={"error": error_msg, "merchant_id": merchant_id})
         
     # 4. Если лимит прошел — сохраняем файл на жесткий диск
     with open(input_path, "wb") as buffer:
