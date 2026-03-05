@@ -22,9 +22,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/")
 async def upload_file(
     background_tasks: BackgroundTasks, 
-    merchant_id: str = Form(...),  # <-- Перенесли сюда (без дефолтного значения)
+    merchant_id: str = Form(...),  
     file: UploadFile = File(...),
-    tov: str = Form("auto")        # <-- С дефолтным значением идет в конце
+    tov: str = Form("auto"),       
+    is_pro: str = Form("false")  # <-- ДОБАВЛЕН ПРИЕМ ФЛАГА ПОДПИСКИ ИЗ ФРОНТЕНДА
 ):
     file_id = str(uuid.uuid4())
     
@@ -44,22 +45,26 @@ async def upload_file(
     except Exception:
         row_count = 0
         
-    print(f"DEBUG: Merchant {merchant_id} uploading {row_count} items.")
+    pro_active = is_pro.lower() == "true"
+    print(f"DEBUG: Merchant {merchant_id} uploading {row_count} items. PRO status: {pro_active}")
         
-    # 3. ПРОВЕРЯЕМ ЛИМИТЫ ДО СОХРАНЕНИЯ
-    limit_check = check_and_update_limit(merchant_id, row_count)
-    if not limit_check["allowed"]:
-        error_msg = f"Limit exceeded! You used {limit_check['used']}/{limit_check['limit']} items. Cannot process {limit_check['requested']} new items. Please upgrade to Pro."
-        print(f"DEBUG: LIMIT HIT - {error_msg}")
-        # Добавил merchant_id в ответ, чтобы фронтенд знал, кого именно просить оплатить
-        return JSONResponse(status_code=400, content={"error": error_msg, "merchant_id": merchant_id})
+    # 3. ПРОВЕРЯЕМ ЛИМИТЫ ДО СОХРАНЕНИЯ (Только если нет PRO)
+    if not pro_active:
+        limit_check = check_and_update_limit(merchant_id, row_count)
+        if not limit_check["allowed"]:
+            error_msg = f"Limit exceeded! You used {limit_check['used']}/{limit_check['limit']} items. Cannot process {limit_check['requested']} new items. Please upgrade to Pro."
+            print(f"DEBUG: LIMIT HIT - {error_msg}")
+            # Добавил merchant_id в ответ, чтобы фронтенд знал, кого именно просить оплатить
+            return JSONResponse(status_code=400, content={"error": error_msg, "merchant_id": merchant_id})
+    else:
+        print(f"DEBUG: Merchant {merchant_id} has PRO. Bypassing limits.")
         
-    # 4. Если лимит прошел — сохраняем файл на жесткий диск
+    # 4. Если лимит прошел или есть PRO — сохраняем файл на жесткий диск
     with open(input_path, "wb") as buffer:
         buffer.write(content)
         
     # 5. Запускаем ИИ
     processing_status[file_id] = {"current": 0, "total": row_count, "status": "starting"}
-    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, tov)
+    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, merchant_id, tov)
     
     return {"file_id": file_id, "message": "Processing started"}

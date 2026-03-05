@@ -68,6 +68,8 @@ def save_cache(cache: dict):
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
 def generate_cache_key(merchant_id: str, title: str, desc: str) -> str:
+    # ВОТ ЗДЕСЬ МАГИЯ: Ключ состоит из ID мерчанта + Названия + Описания
+    # Это гарантирует, что у каждого мерчанта свой изолированный кэш
     text_to_hash = f"{merchant_id}_{str(title)}_{str(desc)}"
     return hashlib.md5(text_to_hash.encode('utf-8')).hexdigest()
 # --------------------------
@@ -90,7 +92,8 @@ def identify_columns(df_sample: pd.DataFrame) -> dict:
 async def clean_and_format_html_async(title: str, raw_description: str, sem: asyncio.Semaphore, tov: str) -> str:
     async with sem:
         title_str = str(title) 
-        desc_str = str(raw_description) 
+        # Защита от NaN и пустых описаний
+        desc_str = "" if str(raw_description).lower() in ["nan", "none", "null"] else str(raw_description) 
         
         selected_tov = tov 
         
@@ -114,27 +117,34 @@ async def clean_and_format_html_async(title: str, raw_description: str, sem: asy
         
         Rules:
         1. Write a beautiful, coherent 2-3 paragraph description that highlights the product's value.
-        2. If the raw description is just random words or poor English, use the Product Title to create a realistic and engaging description.
-        3. Include a bulleted list of 3-4 key features.
-        4. Do NOT invent fake technical specifications.
-        5. Output ONLY the final raw HTML using <p>, <ul>, <li>, <strong> tags. No markdown blocks like ```html.
+        2. Include a bulleted list of 3-4 key features.
+        3. Do NOT invent fake technical specifications. If specifications are missing, focus on the benefits.
+        4. If the Raw Supplier Description is empty or gibberish, generate a realistic description based ONLY on the Product Title.
+        5. Output ONLY the final raw HTML using <p>, <ul>, <li>, <strong> tags. 
+        6. STRICTLY FORBIDDEN: Do not wrap the output in ```html, <html>, <head>, or <body> tags. Return only the inner content.
         """
         
         try:
             response = await aclient.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert Shopify copywriter. Return only HTML."},
+                    {"role": "system", "content": "You are an expert Shopify HTML copywriter. Return ONLY raw HTML content without markdown formatting."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.6 
             )
             content = response.choices[0].message.content.strip()
-            clean_content = content.replace("```html", "").replace("```", "").replace("\n", "")
+            
+            # Очистка от мусорных тегов, которые ломают верстку Shopify
+            clean_content = content.replace("```html", "").replace("```", "")
+            clean_content = clean_content.replace("<html>", "").replace("</html>", "").replace("<body>", "").replace("</body>", "")
+            
             return clean_content.strip()
-        except Exception:
+        except Exception as e:
+            print(f"AI HTML Generation Error: {e}")
             return str(raw_description)
 
+# Принимает merchant_id
 async def process_all_descriptions(df: pd.DataFrame, file_id: str, merchant_id: str, tov: str):
     sem = asyncio.Semaphore(15) 
     cache = load_cache() 
@@ -143,6 +153,7 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, merchant_id: 
         title_str = str(title)
         desc_str = str(desc)
         
+        # Генерируем ключ, который привязан к конкретному мерчанту
         cache_key = generate_cache_key(merchant_id, title_str, desc_str)
         
         if cache_key in cache:
@@ -164,11 +175,9 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, merchant_id: 
         
     save_cache(cache)
 
-def process_csv_file(input_path: str, output_path: str, file_id: str, tov: str="auto"):
-    current_merchant_id = "merchant_test_001" 
-    
+# УБРАЛИ ЖЕСТКИЙ ХАРДКОД. Теперь функция принимает merchant_id из роута
+def process_csv_file(input_path: str, output_path: str, file_id: str, merchant_id: str, tov: str="auto"):
     try:
-        # ИСПОЛЬЗУЕМ НАШ НОВЫЙ БРОНЕБОЙНЫЙ ЗАГРУЗЧИК
         df = advanced_robust_loader(input_path)
         total_rows = len(df)
         
@@ -186,9 +195,10 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, tov: str="
             new_df["Handle"] = new_df["Title"].str.lower().replace(r'[^a-z0-9]+', '-', regex=True)
             
         processing_status[file_id]["status"] = "cleaning" 
-        print(f"Starting TURBO AI for merchant {current_merchant_id}...")
+        print(f"Starting TURBO AI for merchant {merchant_id}...")
         
-        asyncio.run(process_all_descriptions(new_df, file_id, current_merchant_id, tov))
+        # Передаем merchant_id дальше в обработчик
+        asyncio.run(process_all_descriptions(new_df, file_id, merchant_id, tov))
             
         new_df.to_csv(output_path, index=False, encoding="utf-8-sig")
         
