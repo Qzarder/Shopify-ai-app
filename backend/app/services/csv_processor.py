@@ -67,10 +67,10 @@ def save_cache(cache: dict):
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
-def generate_cache_key(merchant_id: str, title: str, desc: str) -> str:
-    # ВОТ ЗДЕСЬ МАГИЯ: Ключ состоит из ID мерчанта + Названия + Описания
-    # Это гарантирует, что у каждого мерчанта свой изолированный кэш
-    text_to_hash = f"{merchant_id}_{str(title)}_{str(desc)}"
+def generate_cache_key(merchant_id: str, title: str, desc: str, tov: str) -> str:
+    # ВОТ ЗДЕСЬ МАГИЯ: Ключ состоит из ID мерчанта + Названия + Описания + ТоВ
+    # Это гарантирует, что у каждого мерчанта и для каждого стиля свой изолированный кэш
+    text_to_hash = f"{merchant_id}_{str(title)}_{str(desc)}_{str(tov)}"
     return hashlib.md5(text_to_hash.encode('utf-8')).hexdigest()
 # --------------------------
 
@@ -139,6 +139,9 @@ async def clean_and_format_html_async(title: str, raw_description: str, sem: asy
             clean_content = content.replace("```html", "").replace("```", "")
             clean_content = clean_content.replace("<html>", "").replace("</html>", "").replace("<body>", "").replace("</body>", "")
             
+            # НОВОЕ: Убиваем физические переносы строк, чтобы CSV не расползался
+            clean_content = clean_content.replace('\n', ' ').replace('\r', '')
+            
             return clean_content.strip()
         except Exception as e:
             print(f"AI HTML Generation Error: {e}")
@@ -153,8 +156,8 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, merchant_id: 
         title_str = str(title)
         desc_str = str(desc)
         
-        # Генерируем ключ, который привязан к конкретному мерчанту
-        cache_key = generate_cache_key(merchant_id, title_str, desc_str)
+        # Генерируем ключ, который привязан к конкретному мерчанту и конкретному TOV
+        cache_key = generate_cache_key(merchant_id, title_str, desc_str, tov)
         
         if cache_key in cache:
             clean_html = cache[cache_key]
@@ -197,7 +200,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, merchant_i
         processing_status[file_id]["status"] = "cleaning" 
         print(f"Starting TURBO AI for merchant {merchant_id}...")
         
-        # Передаем merchant_id дальше в обработчик
+        # Передаем merchant_id и TOV дальше в обработчик
         asyncio.run(process_all_descriptions(new_df, file_id, merchant_id, tov))
             
         new_df.to_csv(output_path, index=False, encoding="utf-8-sig")
