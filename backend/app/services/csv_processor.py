@@ -89,62 +89,76 @@ def identify_columns(df_sample: pd.DataFrame) -> dict:
     )
     return json.loads(response.choices[0].message.content)
 
-async def clean_and_format_html_async(title: str, raw_description: str, sem: asyncio.Semaphore, tov: str) -> str:
+async def clean_and_format_html_async(title: str, raw_description: str, sem: asyncio.Semaphore, tone: str) -> str:
     async with sem:
         title_str = str(title) 
-        # Защита от NaN и пустых описаний
         desc_str = "" if str(raw_description).lower() in ["nan", "none", "null"] else str(raw_description) 
         
-        selected_tov = tov 
-        
-        tov_instructions = {
-            "tech": "Act as a technical expert. Focus on specifications, hardware differences, compatibility, and performance. Use professional terminology.",
-            "beauty": "Act as a high-end fashion and beauty editor. Focus on aesthetics, sensory experience, brand prestige, and results. Use luxurious language.",
-            "sales": "Act as a direct-response copywriter. Focus on highlighting the customer's problem and how this product solves it. Use engaging, benefit-driven language.",
-            "auto": "Analyze the product title and description. Automatically determine its niche and adapt your tone of voice perfectly to match that industry's standards."
+        # Детальные инструкции для каждого стиля
+        style_profiles = {
+            "neutral": {
+                "role": "Balanced E-commerce Copywriter",
+                "instructions": "Write a clear, informative, and stable description. Use a friendly but professional tone. Structure: Intro paragraph -> 3-4 bullet points -> Brief closing.",
+                "forbidden": ["revolutionary", "insane", "magic", "best ever"]
+            },
+            "playful": {
+                "role": "Creative & Enthusiastic Storyteller",
+                "instructions": "Use humor, emojis (sparingly), and high-energy adjectives. Focus on the joy of using the product. Structure: Catchy hook -> Enthusiastic body -> Fun bullet points.",
+                "forbidden": ["technical specifications", "standard", "moreover", "hereby"]
+            },
+            "professional": {
+                "role": "Expert Industry Consultant",
+                "instructions": "Use formal, authoritative language. Focus on reliability, ROI, and quality. Use sophisticated vocabulary. Structure: Executive summary style paragraphs.",
+                "forbidden": ["cool", "awesome", "maybe", "stuff"]
+            },
+            "discriptive": { # Оставляем опечатку как во фронте для связи ключей
+                "role": "Visual & Sensory Copywriter",
+                "instructions": "Focus on deep details, textures, materials, and appearance. Paint a picture with words. Use NO bullet points. Use 3 long, rich paragraphs.",
+                "forbidden": ["fast", "cheap", "click here", "features"]
+            },
+            "tech": {
+                "role": "Technical Systems Engineer",
+                "instructions": "Focus on hardware specs, compatibility, and performance data. Use dry, precise language. Structure: 1 brief intro sentence -> Detailed <ul> list of specs.",
+                "forbidden": ["beautiful", "elegant", "life-changing", "amazing"]
+            },
+            "auto": {
+                "role": "Versatile Marketing AI",
+                "instructions": "Analyze the product title and match the industry standard tone perfectly.",
+                "forbidden": ["Introducing"]
+            }
         }
-        
-        current_tov = tov_instructions.get(selected_tov, tov_instructions["auto"])
+        profile = style_profiles.get(tone, style_profiles["auto"])
         
         prompt = f"""
-        You are an elite e-commerce copywriter for a top-tier Shopify store.
-        Rewrite the raw supplier data into a highly converting, SEO-friendly product description.
+        Act as a {profile['role']}. Rewrite the product data into a unique Shopify HTML description.
         
-        Tone of Voice Instruction: {current_tov}
+        Product: {title_str}
+        Source Info: {desc_str}
         
-        Product Title: {title_str}
-        Raw Supplier Description: {desc_str}
-        
-        Rules:
-        1. Write a beautiful, coherent 2-3 paragraph description that highlights the product's value.
-        2. Include a bulleted list of 3-4 key features.
-        3. Do NOT invent fake technical specifications. If specifications are missing, focus on the benefits.
-        4. If the Raw Supplier Description is empty or gibberish, generate a realistic description based ONLY on the Product Title.
-        5. Output ONLY the final raw HTML using <p>, <ul>, <li>, <strong> tags. 
-        6. STRICTLY FORBIDDEN: Do not wrap the output in ```html, <html>, <head>, or <body> tags. Return only the inner content.
+        STRICT RULES:
+        1. Tone/Style: {profile['instructions']}
+        2. Forbidden words: {", ".join(profile['forbidden'])}
+        3. Never start with "{title_str} is..." or "Introducing...". 
+        4. Syntax: Change the sentence structure completely compared to a standard description.
+        5. Output ONLY raw HTML (p, strong, ul, li). No markdown code blocks.
         """
         
         try:
             response = await aclient.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are an expert Shopify HTML copywriter. Return ONLY raw HTML content without markdown formatting."},
+                    {"role": "system", "content": f"You are a professional copywriter. Your goal is to be unique and avoid repetitive structures. Seed: {hash(title_str) % 1000}"},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.6 
+                temperature=0.8 # Увеличили креативность
             )
             content = response.choices[0].message.content.strip()
             
-            # Очистка от мусорных тегов, которые ломают верстку Shopify
-            clean_content = content.replace("```html", "").replace("```", "")
-            clean_content = clean_content.replace("<html>", "").replace("</html>", "").replace("<body>", "").replace("</body>", "")
-            
-            # НОВОЕ: Убиваем физические переносы строк, чтобы CSV не расползался
-            clean_content = clean_content.replace('\n', ' ').replace('\r', '')
-            
+            # Очистка
+            clean_content = content.replace("```html", "").replace("```", "").replace('\n', ' ').replace('\r', '')
             return clean_content.strip()
         except Exception as e:
-            print(f"AI HTML Generation Error: {e}")
+            print(f"AI Generation Error: {e}")
             return str(raw_description)
 
 # Принимает merchant_id
@@ -203,8 +217,14 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, merchant_i
         # Передаем merchant_id и TOV дальше в обработчик
         asyncio.run(process_all_descriptions(new_df, file_id, merchant_id, tov))
             
-        new_df.to_csv(output_path, index=False, encoding="utf-8-sig")
-        
+        new_df.to_csv(
+            output_path, 
+            index=False, 
+            encoding="utf-8-sig", 
+            quoting=csv.QUOTE_ALL,  # Оборачивает КАЖДОЕ поле в кавычки ""
+            escapechar='\\'         # Экранирует спецсимволы, если они есть
+        )        
+
         processing_status[file_id]["status"] = "completed"
         print(f"Done! Saved to {output_path}")
         

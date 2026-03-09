@@ -24,7 +24,7 @@ async def upload_file(
     background_tasks: BackgroundTasks, 
     merchant_id: str = Form(...),  
     file: UploadFile = File(...),
-    tov: str = Form("auto"),       
+    tone: str = Form("auto"),       
     is_pro: str = Form("false")  # <-- ДОБАВЛЕН ПРИЕМ ФЛАГА ПОДПИСКИ ИЗ ФРОНТЕНДА
 ):
     file_id = str(uuid.uuid4())
@@ -65,6 +65,6 @@ async def upload_file(
         
     # 5. Запускаем ИИ
     processing_status[file_id] = {"current": 0, "total": row_count, "status": "starting"}
-    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, merchant_id, tov)
+    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, merchant_id, tone)
     
     return {"file_id": file_id, "message": "Processing started"}
