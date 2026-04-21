@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "@shopify/app": "^3.58.2",
+    "@shopify/cli": "^3.91.1"
+  }
+}

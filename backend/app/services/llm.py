@@ -1,7 +1,12 @@
 import os
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise RuntimeError("OPENAI_API_KEY environment variable is not set!")
+print(f"[DEBUG] OpenAI API Key loaded: {api_key[:15]}...")
+
+client = OpenAI(api_key=api_key)
 
 PROMPT_TEMPLATE = """
 You are a product copy editor for Shopify pet supply stores.

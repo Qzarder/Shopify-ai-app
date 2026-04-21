@@ -17,3 +17,4 @@ outputs/
 html_cache.json
 user_limits.json
 csv-magic-cleaner/
+node_modules
