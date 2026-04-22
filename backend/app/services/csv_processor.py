@@ -119,8 +119,8 @@ def save_cache(cache: dict):
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
 
-def generate_cache_key(merchant_id: str, title: str, desc: str, tone: str) -> str:
-    text_to_hash = f"{merchant_id}_{str(title)}_{str(desc)}_{str(tone)}"
+def generate_cache_key(shop: str, title: str, desc: str, tone: str) -> str:
+    text_to_hash = f"{shop}_{str(title)}_{str(desc)}_{str(tone)}"
     return hashlib.md5(text_to_hash.encode("utf-8")).hexdigest()
 
 
@@ -235,12 +235,12 @@ async def clean_and_format_html_async(title: str, raw_description: str, sem: asy
             return str(raw_description)
 
 
-async def process_all_descriptions(df: pd.DataFrame, file_id: str, merchant_id: str, tone: str):
+async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, tone: str):
     sem = asyncio.Semaphore(15)
     cache = load_cache()
 
     async def task_wrapper(index, title, desc, current_tone):
-        cache_key = generate_cache_key(merchant_id, title, desc, current_tone)
+        cache_key = generate_cache_key(shop, title, desc, current_tone)
         if cache_key in cache:
             return index, cache[cache_key]
         clean_html = await clean_and_format_html_async(title, desc, sem, current_tone)
@@ -262,7 +262,7 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, merchant_id: 
     save_cache(cache)
 
 
-def process_csv_file(input_path: str, output_path: str, file_id: str, merchant_id: str, tone: str = "Neutral & Professional"):
+def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional"):
     try:
         df = advanced_robust_loader(input_path)
         total_rows = len(df)
@@ -289,7 +289,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, merchant_i
             )
 
         processing_status[file_id]["status"] = "cleaning"
-        asyncio.run(process_all_descriptions(new_df, file_id, merchant_id, tone))
+        asyncio.run(process_all_descriptions(new_df, file_id, shop, tone))
 
         new_df.to_csv(
             output_path,

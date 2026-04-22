@@ -16,10 +16,10 @@ def save_limits(limits: dict):
     with open(LIMITS_FILE, "w", encoding="utf-8") as f:
         json.dump(limits, f, indent=2)
 
-def check_and_update_limit(merchant_id: str, new_rows: int) -> dict:
+def check_and_update_limit(shop: str, new_rows: int) -> dict:
     """Проверяет лимит и списывает строки, если лимит позволяет."""
     limits = load_limits()
-    current_usage = limits.get(merchant_id, 0)
+    current_usage = limits.get(shop, 0)
     
     if current_usage + new_rows > FREE_TIER_LIMIT:
         return {
@@ -30,7 +30,7 @@ def check_and_update_limit(merchant_id: str, new_rows: int) -> dict:
         }
         
     # Если всё ок — "списываем" токены (прибавляем к использованным)
-    limits[merchant_id] = current_usage + new_rows
+    limits[shop] = current_usage + new_rows
     save_limits(limits)
     
     return {"allowed": True}

@@ -21,7 +21,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 async def upload_file(
     request: Request,
     background_tasks: BackgroundTasks,
-    merchant_id: str | None = Form(None),
+    shop: str | None = Form(None),
     file: UploadFile = File(...),
     tone: str | None = Form(None),
     tov: str | None = Form(None),
@@ -29,10 +29,10 @@ async def upload_file(
 ):
     file_id = str(uuid.uuid4())
 
-    merchant_id = (merchant_id or "").strip()
-    if not merchant_id:
+    shop = (shop or "").strip()
+    if not shop:
         client_host = getattr(request.client, "host", "direct-user")
-        merchant_id = f"direct-web:{client_host}"
+        shop = f"direct-web:{client_host}"
 
     selected_tone = (tone or tov or "Neutral & Professional").strip() or "Neutral & Professional"
 
@@ -49,24 +49,24 @@ async def upload_file(
         row_count = 0
 
     pro_active = is_pro.lower() == "true"
-    print(f"DEBUG: Merchant {merchant_id} uploading {row_count} items. PRO status: {pro_active}. Tone: {selected_tone}")
+    print(f"DEBUG: Shop {shop} uploading {row_count} items. PRO status from billing: {pro_active}. Tone: {selected_tone}")
 
     if not pro_active:
-        limit_check = check_and_update_limit(merchant_id, row_count)
+        limit_check = check_and_update_limit(shop, row_count)
         if not limit_check["allowed"]:
             error_msg = (
                 f"Limit exceeded! You used {limit_check['used']}/{limit_check['limit']} items. "
                 f"Cannot process {limit_check['requested']} new items. Please upgrade to Pro."
             )
             print(f"DEBUG: LIMIT HIT - {error_msg}")
-            return JSONResponse(status_code=400, content={"error": error_msg, "merchant_id": merchant_id})
+            return JSONResponse(status_code=400, content={"error": error_msg, "shop": shop})
     else:
-        print(f"DEBUG: Merchant {merchant_id} has PRO. Bypassing limits.")
+        print(f"DEBUG: Shop {shop} has PRO (verified via Shopify Billing). Bypassing limits.")
 
     with open(input_path, "wb") as buffer:
         buffer.write(content)
 
     processing_status[file_id] = {"current": 0, "total": row_count, "status": "starting"}
-    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, merchant_id, selected_tone)
+    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, shop, selected_tone)
 
     return {"file_id": file_id, "message": "Processing started"}
