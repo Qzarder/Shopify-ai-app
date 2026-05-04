@@ -124,6 +124,32 @@ def generate_cache_key(shop: str, title: str, desc: str, tone: str) -> str:
     return hashlib.md5(text_to_hash.encode("utf-8")).hexdigest()
 
 
+IGNORED_FOR_FINGERPRINT = {'price', 'cost', 'compare at price', 'inventory', 'stock', 'quantity'}
+
+EXTRA_FINGERPRINT_FIELDS = {'sku', 'variant sku', 'color', 'colour', 'size', 'material', 'weight', 'option', 'variant'}
+
+
+def generate_fingerprint(shop: str, source_row_dict: dict, column_map: dict, tone: str) -> str:
+    parts = [str(shop), str(tone)]
+
+    for shopify_field, source_col in column_map.items():
+        if source_col and source_col in source_row_dict:
+            val = str(source_row_dict[source_col]).strip().lower()
+            parts.append(f"map_{shopify_field}={val}")
+
+    for field, value in source_row_dict.items():
+        field_lower = field.lower()
+        if any(ignored == field_lower for ignored in IGNORED_FOR_FINGERPRINT):
+            continue
+        if any(extra in field_lower for extra in EXTRA_FINGERPRINT_FIELDS):
+            val = str(value).strip().lower()
+            parts.append(f"meta_{field_lower}={val}")
+
+    parts.sort()
+    fingerprint_text = "|".join(parts)
+    return hashlib.md5(fingerprint_text.encode("utf-8")).hexdigest()
+
+
 def identify_columns(df_sample: pd.DataFrame) -> dict:
     sample_json = df_sample.to_json(orient="records")
     prompt = f"""
@@ -239,8 +265,8 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
     sem = asyncio.Semaphore(15)
     cache = load_cache()
 
-    async def task_wrapper(index, title, desc, current_tone):
-        cache_key = generate_cache_key(shop, title, desc, current_tone)
+    async def task_wrapper(index, title, desc, current_tone, fingerprint):
+        cache_key = fingerprint
         if cache_key in cache:
             return index, cache[cache_key]
         clean_html = await clean_and_format_html_async(title, desc, sem, current_tone)
@@ -248,7 +274,7 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
         return index, clean_html
 
     tasks = [
-        task_wrapper(index, row["Title"], row.get("Body (HTML)", ""), tone)
+        task_wrapper(index, row["Title"], row.get("Body (HTML)", ""), tone, row["_fingerprint"])
         for index, row in df.iterrows()
     ]
 
@@ -264,19 +290,29 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
 
 def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional"):
     try:
-        df = advanced_robust_loader(input_path)
-        total_rows = len(df)
+        source_df = advanced_robust_loader(input_path)
+        total_rows = len(source_df)
         processing_status[file_id] = {"current": 0, "total": total_rows, "status": "mapping"}
 
-        column_map = identify_columns(df.head(3))
+        column_map = identify_columns(source_df.head(3))
         if not isinstance(column_map, dict):
             raise ValueError(f"Column map must be a JSON object, got {type(column_map).__name__}")
 
         print(f"DEBUG column_map for {file_id}: {column_map}")
 
+        fingerprints = []
+        for _, row in source_df.iterrows():
+            source_row_dict = row.to_dict()
+            fp = generate_fingerprint(shop, source_row_dict, column_map, tone)
+            fingerprints.append(fp)
+        print(f"DEBUG fingerprints for {file_id}: {len(fingerprints)} unique={len(set(fingerprints))}")
+
         new_df = pd.DataFrame(columns=SHOPIFY_FIELDS)
+
         for shopify_field, supplier_field in column_map.items():
-            apply_column_mapping(df, new_df, shopify_field, supplier_field)
+            apply_column_mapping(source_df, new_df, shopify_field, supplier_field)
+
+        new_df["_fingerprint"] = fingerprints
 
         if "Title" in new_df.columns:
             new_df["Handle"] = (
@@ -290,6 +326,9 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
 
         processing_status[file_id]["status"] = "cleaning"
         asyncio.run(process_all_descriptions(new_df, file_id, shop, tone))
+
+        if "_fingerprint" in new_df.columns:
+            new_df = new_df.drop(columns=["_fingerprint"])
 
         new_df.to_csv(
             output_path,
