@@ -143,7 +143,7 @@ def generate_fingerprint(shop: str, source_row_dict: dict, column_map: dict, ton
                 if col in source_row_dict:
                     val = str(source_row_dict[col]).strip().lower()
                     parts.append(f"map_{shopify_field}={val}")
-        elif source_col and source_col in source_row_dict:
+        elif isinstance(source_col, str) and source_col in source_row_dict:
             val = str(source_row_dict[source_col]).strip().lower()
             parts.append(f"map_{shopify_field}={val}")
 
