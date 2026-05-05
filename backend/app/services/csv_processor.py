@@ -304,7 +304,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
         column_map = None
         template_fp = None
         if csv_headers:
-            matched = find_matching_template(csv_headers)
+            matched = find_matching_template(csv_headers, shop)
             if matched:
                 column_map = matched["column_map"]
                 template_fp = matched["fingerprint"]

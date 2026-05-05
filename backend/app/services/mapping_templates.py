@@ -51,15 +51,20 @@ def save_template(shop: str, supplier_name: str, headers: list[str], column_map:
     return fp
 
 
-def find_matching_template(headers: list[str], threshold: float = 0.7) -> Optional[dict]:
+def find_matching_template(headers: list[str], shop: str = "", threshold: float = 0.7) -> Optional[dict]:
     templates = load_templates()
+    best_score = threshold
+    best_match = None
     for fp, tmpl in templates.items():
+        if shop and tmpl.get("shop") != shop:
+            continue
         score = _fuzzy_match_headers(headers, tmpl["headers"])
-        if score >= threshold:
-            tmpl["match_score"] = score
-            tmpl["fingerprint"] = fp
-            return tmpl
-    return None
+        if score > best_score:
+            best_score = score
+            best_match = dict(tmpl)
+            best_match["match_score"] = score
+            best_match["fingerprint"] = fp
+    return best_match
 
 
 def increment_usage(fingerprint: str):
