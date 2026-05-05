@@ -161,23 +161,32 @@ def generate_fingerprint(shop: str, source_row_dict: dict, column_map: dict, ton
 
 
 def identify_columns(df_sample: pd.DataFrame) -> dict:
-    sample_json = df_sample.to_json(orient="records")
+    csv_columns = list(df_sample.columns)
+    sample_json = df_sample.head(2).to_json(orient="records")
     prompt = f"""
-    Analyze this CSV sample and map its columns to Shopify fields: {SHOPIFY_FIELDS}
-    Sample data: {sample_json}
+    You have a CSV with these columns: {json.dumps(csv_columns)}.
+    Here is a sample of the first 2 rows: {sample_json}
 
-    Return ONLY a JSON object.
-    Rules:
-    - Each value must be either one source column name string from the sample or null.
-    - Never return arrays/lists.
-    - If several columns look possible, choose the single best match.
+    Map the CSV columns to Shopify product fields from this list:
+    {json.dumps(SHOPIFY_FIELDS)}
+
+    RETURN A FLAT JSON OBJECT where keys are Shopify field names (strings)
+    and values are CSV column names (strings).
+    Use null for fields that have no match.
+    NEVER return arrays, nested objects, or row data.
+
+    Example correct response:
+    {{"Title": "Name", "Body (HTML)": "Description", "Vendor": null, "Type": null, "Tags": null, "Published": null, "Option1 Name": null, "Option1 Value": null, "Variant SKU": null, "Variant Price": null, "Image Src": null}}
     """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
-    return json.loads(response.choices[0].message.content)
+    result = json.loads(response.choices[0].message.content)
+    if not isinstance(result, dict):
+        raise ValueError(f"AI returned {type(result).__name__} instead of dict")
+    return result
 
 
 def normalize_supplier_field(value):
