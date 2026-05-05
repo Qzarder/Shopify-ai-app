@@ -309,7 +309,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
                 column_map = matched["column_map"]
                 template_fp = matched["fingerprint"]
                 if os.getenv("DEBUG"):
-                print(f"DEBUG template matched for {file_id}: {matched['supplier_name']} (score={matched['match_score']:.0%})")
+                    print(f"DEBUG template matched for {file_id}: {matched['supplier_name']} (score={matched['match_score']:.0%})")
             else:
                 if os.getenv("DEBUG"):
                     print(f"DEBUG no template match for {file_id}, using AI mapping")
