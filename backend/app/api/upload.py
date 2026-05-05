@@ -1,11 +1,13 @@
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form, Request
 from fastapi.responses import JSONResponse
+import json
 import uuid
 from pathlib import Path
 
 from app.services.csv_processor import process_csv_file
 from app.services.state import processing_status
 from app.services.limits import check_and_update_limit
+from app.services.mapping_templates import list_templates, delete_template, save_template as save_tmpl
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -26,6 +28,7 @@ async def upload_file(
     tone: str | None = Form(None),
     tov: str | None = Form(None),
     is_pro: str = Form("false"),
+    supplier_name: str | None = Form(None),
 ):
     file_id = str(uuid.uuid4())
 
@@ -67,6 +70,33 @@ async def upload_file(
         buffer.write(content)
 
     processing_status[file_id] = {"current": 0, "total": row_count, "status": "starting"}
-    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, shop, selected_tone)
+    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, shop, selected_tone, supplier_name or "")
 
     return {"file_id": file_id, "message": "Processing started"}
+
+
+@router.get("/templates")
+async def get_templates(shop: str = ""):
+    return {"templates": list_templates(shop)}
+
+
+@router.delete("/templates/{fingerprint}")
+async def remove_template(fingerprint: str, shop: str = ""):
+    deleted = delete_template(shop, fingerprint)
+    if not deleted:
+        return JSONResponse(status_code=404, content={"error": "Template not found"})
+    return {"status": "deleted"}
+
+
+@router.post("/templates")
+async def create_template(
+    shop: str = Form(...),
+    supplier_name: str = Form(...),
+    column_map: str = Form(...),
+    tone: str = Form("Neutral & Professional"),
+    headers: str = Form(...),
+):
+    headers_list = [h.strip() for h in headers.split(",") if h.strip()]
+    cm = json.loads(column_map)
+    fp = save_tmpl(shop, supplier_name, headers_list, cm, tone)
+    return {"fingerprint": fp, "message": "Template saved"}

@@ -8,6 +8,7 @@ import pandas as pd
 from openai import AsyncOpenAI, OpenAI
 
 from app.services.state import processing_status
+from app.services.mapping_templates import find_matching_template, save_template, increment_usage
 
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
@@ -119,20 +120,24 @@ def save_cache(cache: dict):
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
 
-def generate_cache_key(shop: str, title: str, desc: str, tone: str) -> str:
-    text_to_hash = f"{shop}_{str(title)}_{str(desc)}_{str(tone)}"
-    return hashlib.md5(text_to_hash.encode("utf-8")).hexdigest()
-
 
 IGNORED_FOR_FINGERPRINT = {'price', 'cost', 'compare at price', 'inventory', 'stock', 'quantity'}
 
 EXTRA_FINGERPRINT_FIELDS = {'sku', 'variant sku', 'color', 'colour', 'size', 'material', 'weight', 'option', 'variant'}
+
+SHOPIFY_IGNORED_FOR_FINGERPRINT = {
+    "Variant Price", "Variant Compare At Price",
+    "Variant Inventory Qty", "Variant Weight",
+    "Image Src",
+}
 
 
 def generate_fingerprint(shop: str, source_row_dict: dict, column_map: dict, tone: str) -> str:
     parts = [str(shop), str(tone)]
 
     for shopify_field, source_col in column_map.items():
+        if shopify_field in SHOPIFY_IGNORED_FOR_FINGERPRINT:
+            continue
         if source_col and source_col in source_row_dict:
             val = str(source_row_dict[source_col]).strip().lower()
             parts.append(f"map_{shopify_field}={val}")
@@ -146,7 +151,7 @@ def generate_fingerprint(shop: str, source_row_dict: dict, column_map: dict, ton
             parts.append(f"meta_{field_lower}={val}")
 
     parts.sort()
-    fingerprint_text = "|".join(parts)
+    fingerprint_text = json.dumps(parts, ensure_ascii=False)
     return hashlib.md5(fingerprint_text.encode("utf-8")).hexdigest()
 
 
@@ -288,13 +293,37 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
     save_cache(cache)
 
 
-def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional"):
+def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional", supplier_name: str = ""):
     try:
         source_df = advanced_robust_loader(input_path)
         total_rows = len(source_df)
         processing_status[file_id] = {"current": 0, "total": total_rows, "status": "mapping"}
 
-        column_map = identify_columns(source_df.head(3))
+        csv_headers = list(source_df.columns)
+
+        column_map = None
+        template_fp = None
+        if csv_headers:
+            matched = find_matching_template(csv_headers)
+            if matched:
+                column_map = matched["column_map"]
+                template_fp = matched["fingerprint"]
+                if os.getenv("DEBUG"):
+                print(f"DEBUG template matched for {file_id}: {matched['supplier_name']} (score={matched['match_score']:.0%})")
+            else:
+                if os.getenv("DEBUG"):
+                    print(f"DEBUG no template match for {file_id}, using AI mapping")
+
+        if column_map is None:
+            column_map = identify_columns(source_df.head(3))
+            if supplier_name:
+                save_template(shop, supplier_name, csv_headers, column_map, tone)
+                if os.getenv("DEBUG"):
+                    print(f"DEBUG saved template for {file_id}: {supplier_name}")
+
+        if template_fp:
+            increment_usage(template_fp)
+
         if not isinstance(column_map, dict):
             raise ValueError(f"Column map must be a JSON object, got {type(column_map).__name__}")
 
@@ -305,7 +334,8 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
             source_row_dict = row.to_dict()
             fp = generate_fingerprint(shop, source_row_dict, column_map, tone)
             fingerprints.append(fp)
-        print(f"DEBUG fingerprints for {file_id}: {len(fingerprints)} unique={len(set(fingerprints))}")
+        if os.getenv("DEBUG"):
+            print(f"DEBUG fingerprints for {file_id}: {len(fingerprints)} unique={len(set(fingerprints))}")
 
         new_df = pd.DataFrame(columns=SHOPIFY_FIELDS)
 
