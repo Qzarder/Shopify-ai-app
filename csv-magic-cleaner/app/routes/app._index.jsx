@@ -287,9 +287,6 @@ const handleDownload = async () => {
                   <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData && !actionData.imported}>
                     Import to Shopify Store
                   </Button>
-                  <Button variant="secondary" size="large" onClick={handleDownload}>
-                    Download CSV
-                  </Button>
                   {actionData?.imported !== undefined && (
                     <Banner tone={actionData.errors?.length > 0 ? "warning" : "success"}>
                       Imported {actionData.imported}/{actionData.total} products
