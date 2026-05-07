@@ -9,10 +9,40 @@ const backendUrl = "https://magic-ai-cleaner-app.onrender.com";
 
 // Р­РљРЁР•Рќ: Р—Р°РїСѓСЃРєР°РµС‚ РїСЂРѕС†РµСЃСЃ РѕРїР»Р°С‚С‹
 export const action = async ({ request }) => {
-  const { billing, session } = await authenticate.admin(request);
+  const { billing, session, admin } = await authenticate.admin(request);
   const { shop } = session;
 
   const url = new URL(request.url);
+  const formData = await request.formData();
+
+  const fileId = formData.get("fileId");
+  if (fileId) {
+    const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`);
+    const { products } = await backendRes.json();
+
+    let created = 0;
+    let errors = [];
+    for (const product of products) {
+      const response = await admin.graphql(
+        `#graphql
+        mutation productCreate($input: ProductInput!) {
+          productCreate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }`,
+        { variables: { input: product } }
+      );
+      const json = await response.json();
+      if (json.data.productCreate.userErrors.length > 0) {
+        errors.push(...json.data.productCreate.userErrors);
+      } else {
+        created++;
+      }
+    }
+    return { imported: created, total: products.length, errors: errors.slice(0, 5) };
+  }
+
   const pathParts = url.pathname.split('/');
   const appHandle = pathParts[pathParts.indexOf('apps') + 1] || "csv-magic-cleaner";
   const returnUrl = `https://${shop}/admin/apps/${appHandle}/app`;
@@ -165,9 +195,8 @@ formData.append("shop", shopDomain || shop);
     return () => clearInterval(interval);
   }, [isProcessing, fileId, isCompleted]);
 
-  const handleDownload = async () => {
+const handleDownload = async () => {
     try {
-      // Р—РђРњР•РќР•РќРћ: localhost -> backendUrl
       const response = await fetch(`${backendUrl}/download/${fileId}`);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -180,6 +209,12 @@ formData.append("shop", shopDomain || shop);
     } catch (error) {
       setMessage(`Download error: ${error.message}`);
     }
+  };
+
+  const handleImportShopify = async () => {
+    const formData = new FormData();
+    formData.append("fileId", fileId);
+    submit(formData, { method: "post" });
   };
 
   return (
@@ -248,9 +283,20 @@ formData.append("shop", shopDomain || shop);
               )}
 
               {isCompleted && (
-                <Button variant="primary" size="large" onClick={handleDownload}>
-                  Download CSV
-                </Button>
+                <BlockStack gap="300">
+                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData && !actionData.imported}>
+                    Import to Shopify Store
+                  </Button>
+                  <Button variant="secondary" size="large" onClick={handleDownload}>
+                    Download CSV
+                  </Button>
+                  {actionData?.imported !== undefined && (
+                    <Banner tone={actionData.errors?.length > 0 ? "warning" : "success"}>
+                      Imported {actionData.imported}/{actionData.total} products
+                      {actionData.errors?.length > 0 && `. Skipped: ${actionData.errors.length}`}
+                    </Banner>
+                  )}
+                </BlockStack>
               )}
             </BlockStack>
           </Card>
