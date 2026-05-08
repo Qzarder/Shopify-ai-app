@@ -96,14 +96,38 @@ def advanced_robust_loader(file_path: str) -> pd.DataFrame:
     header = [str(cell).strip() for cell in rows[0]]
     expected_len = len(header)
 
-    normalized_rows = []
+normalized_rows = []
+    warnings = []
+    row_num = 0
     for row in rows[1:]:
+        row_num += 1
         if len(row) > expected_len:
-            extra = delimiter.join(row[expected_len - 1 :])
-            row = row[: expected_len - 1] + [extra]
+            overflow = row[expected_len:]
+            row = row[:expected_len]
+            salvaged = False
+            for extra_field in overflow:
+                clean = extra_field.strip()
+                if clean.lower() in {"nan", "none", "null", "in_stock", "out_of_stock",
+                                      "backorder", "discontinued", "pre_order", "limited_stock",
+                                      "in", "out"}:
+                    continue
+                if clean.startswith("http"):
+                    row[-1] = clean
+                    salvaged = True
+                    break
+            if salvaged:
+                warnings.append(f"Row {row_num}: salvaged image URL from overflow columns")
+            else:
+                warnings.append(f"Row {row_num}: {len(overflow)} extra columns truncated")
         elif len(row) < expected_len:
             row = row + [""] * (expected_len - len(row))
         normalized_rows.append(row)
+    if warnings:
+        print(f"WARNINGS for {file_path}:")
+        for w in warnings[:5]:
+            print(f"  {w}")
+        if len(warnings) > 5:
+            print(f"  ... and {len(warnings) - 5} more")
 
     return pd.DataFrame(normalized_rows, columns=header).fillna("")
 
