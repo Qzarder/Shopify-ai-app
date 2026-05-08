@@ -17,8 +17,12 @@ export const action = async ({ request }) => {
 
   const fileId = formData.get("fileId");
   if (fileId) {
-    const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`);
-    const { products } = await backendRes.json();
+const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`);
+      const data = await backendRes.json();
+      if (!data.products || !Array.isArray(data.products)) {
+        return { error: data.error || "No products found", imported: 0, total: 0, errors: [] };
+      }
+      const { products } = data;
 
 let created = 0;
       let errors = [];
@@ -203,23 +207,7 @@ formData.append("shop", shopDomain || shop);
     return () => clearInterval(interval);
   }, [isProcessing, fileId, isCompleted]);
 
-const handleDownload = async () => {
-    try {
-      const response = await fetch(`${backendUrl}/download/${fileId}`);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "processed.csv"; 
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (error) {
-      setMessage(`Download error: ${error.message}`);
-    }
-  };
-
-  const handleImportShopify = async () => {
+const handleImportShopify = async () => {
     const formData = new FormData();
     formData.append("fileId", fileId);
     submit(formData, { method: "post" });
