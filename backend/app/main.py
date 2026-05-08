@@ -16,7 +16,7 @@ stripe.api_key = os.getenv("STRIPE_API_KEY")
 WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # Импорт роутеров и сервисов
-from app.api import checkout, download, process, health, upload, products
+from app.api import checkout, process, health, upload, products
 from app.api.status import router as status_router
 from app.services.payment_store import mark_paid
 from app.services.limits import check_and_update_limit
@@ -31,7 +31,7 @@ app = FastAPI(title="Shopify AI Importer")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://admin.shopify.com", "https://csv-magic-cleaner-blue-lake-2582.fly.dev"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -112,6 +112,5 @@ app.include_router(health.router)
 app.include_router(upload.router)
 app.include_router(checkout.router)
 app.include_router(process.router)
-app.include_router(download.router)
 app.include_router(status_router)
 app.include_router(products.router)
