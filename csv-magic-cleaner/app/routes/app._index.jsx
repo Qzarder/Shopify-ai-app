@@ -334,7 +334,7 @@ const handleImportShopify = async () => {
                       </div>
                     </Card>
                   )}
-                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData?.imported === undefined && actionData?.error === undefined}>
+                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData !== undefined && actionData?.imported === undefined && actionData?.error === undefined}>
                     Import to Shopify Store
                   </Button>
                   {actionData?.imported !== undefined && (
