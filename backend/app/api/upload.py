@@ -29,6 +29,8 @@ async def upload_file(
     tov: str | None = Form(None),
     is_pro: str = Form("false"),
     supplier_name: str | None = Form(None),
+    seo: str = Form("false"),
+    alt: str = Form("false"),
 ):
     file_id = str(uuid.uuid4())
 
@@ -70,7 +72,7 @@ async def upload_file(
         buffer.write(content)
 
     processing_status[file_id] = {"current": 0, "total": row_count, "status": "starting"}
-    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, shop, selected_tone, supplier_name or "")
+    background_tasks.add_task(process_csv_file, input_path, output_path, file_id, shop, selected_tone, supplier_name or "", seo.lower() == "true", alt.lower() == "true")
 
     return {"file_id": file_id, "message": "Processing started"}
 

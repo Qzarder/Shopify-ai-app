@@ -16,7 +16,7 @@ stripe.api_key = os.getenv("STRIPE_API_KEY")
 WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # Импорт роутеров и сервисов
-from app.api import checkout, process, health, upload, products
+from app.api import checkout, process, health, upload, products, preview
 from app.api.status import router as status_router
 from app.services.payment_store import mark_paid
 from app.services.limits import check_and_update_limit
@@ -114,3 +114,4 @@ app.include_router(checkout.router)
 app.include_router(process.router)
 app.include_router(status_router)
 app.include_router(products.router)
+app.include_router(preview.router)

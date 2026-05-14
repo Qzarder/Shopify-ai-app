@@ -264,7 +264,7 @@ def apply_column_mapping(df: pd.DataFrame, new_df: pd.DataFrame, shopify_field: 
         new_df[shopify_field] = df[normalized_field]
 
 
-async def clean_and_format_html_async(title: str, raw_description: str, sem: asyncio.Semaphore, tone: str) -> str:
+async def clean_and_format_html_async(title: str, raw_description: str, sem: asyncio.Semaphore, tone: str, gen_seo: bool = False, gen_alt: bool = False) -> dict | str:
     async with sem:
         title_str = str(title)
         desc_str = "" if str(raw_description).lower() in ["nan", "none", "null"] else str(raw_description)
@@ -283,28 +283,60 @@ async def clean_and_format_html_async(title: str, raw_description: str, sem: asy
         4. Output ONLY raw HTML (p, strong, ul, li).
         """
 
+        if gen_seo or gen_alt:
+            prompt += "\n\nALSO return a JSON with these fields:\n"
+            prompt += '{"body": "<HTML description>", '
+            if gen_seo:
+                prompt += '"seo_title": "<55 char SEO title>", "seo_desc": "<160 char meta description>", '
+            if gen_alt:
+                prompt += '"alt_text": "<image alt text>", '
+            prompt += "}"
+            prompt += "\nReturn ONLY the JSON, no markdown wrappers."
+
         try:
-            response = await aclient.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": f"Professional unique copywriter. Seed: {hash(title_str) % 1000}"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.8,
-            )
-            content = response.choices[0].message.content.strip()
-            clean_content = (
-                content.replace("```html", "")
-                .replace("```", "")
-                .replace("\n", " ")
-                .replace("\r", "")
-            )
-            return clean_content.strip()
+            if gen_seo or gen_alt:
+                response = await aclient.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": f"Professional unique copywriter. Seed: {hash(title_str) % 1000}. Output valid JSON only."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.8,
+                    response_format={"type": "json_object"},
+                )
+                content = response.choices[0].message.content.strip()
+                result = json.loads(content)
+                result["body"] = (
+                    result.get("body", "")
+                    .replace("```html", "")
+                    .replace("```", "")
+                    .replace("\n", " ")
+                    .replace("\r", "")
+                    .strip()
+                )
+                return result
+            else:
+                response = await aclient.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": f"Professional unique copywriter. Seed: {hash(title_str) % 1000}"},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.8,
+                )
+                content = response.choices[0].message.content.strip()
+                clean_content = (
+                    content.replace("```html", "")
+                    .replace("```", "")
+                    .replace("\n", " ")
+                    .replace("\r", "")
+                )
+                return clean_content.strip()
         except Exception:
-            return str(raw_description)
+            return {"body": str(raw_description), "seo_title": title_str, "seo_desc": "", "alt_text": ""} if gen_seo or gen_alt else str(raw_description)
 
 
-async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, tone: str):
+async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, tone: str, gen_seo: bool = False, gen_alt: bool = False):
     sem = asyncio.Semaphore(15)
     cache = load_cache()
 
@@ -312,26 +344,40 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
         cache_key = fingerprint
         if cache_key in cache:
             return index, cache[cache_key]
-        clean_html = await clean_and_format_html_async(title, desc, sem, current_tone)
-        cache[cache_key] = clean_html
-        return index, clean_html
+        result = await clean_and_format_html_async(title, desc, sem, current_tone, gen_seo, gen_alt)
+        cache[cache_key] = result
+        return index, result
 
     tasks = [
         task_wrapper(index, row["Title"], row.get("Body (HTML)", ""), tone, row["_fingerprint"])
         for index, row in df.iterrows()
     ]
 
+    if gen_seo:
+        df["SEO Title"] = ""
+        df["SEO Description"] = ""
+    if gen_alt:
+        df["Image Alt Text"] = ""
+
     completed = 0
     for future in asyncio.as_completed(tasks):
-        index, clean_html = await future
-        df.at[index, "Body (HTML)"] = clean_html
+        index, result = await future
+        if isinstance(result, dict):
+            df.at[index, "Body (HTML)"] = result.get("body", "")
+            if gen_seo:
+                df.at[index, "SEO Title"] = result.get("seo_title", "")
+                df.at[index, "SEO Description"] = result.get("seo_desc", "")
+            if gen_alt:
+                df.at[index, "Image Alt Text"] = result.get("alt_text", "")
+        else:
+            df.at[index, "Body (HTML)"] = result
         completed += 1
         processing_status[file_id]["current"] = completed
 
     save_cache(cache)
 
 
-def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional", supplier_name: str = ""):
+def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional", supplier_name: str = "", gen_seo: bool = False, gen_alt: bool = False)::
     try:
         source_df = advanced_robust_loader(input_path)
         total_rows = len(source_df)
@@ -393,7 +439,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
             )
 
         processing_status[file_id]["status"] = "cleaning"
-        asyncio.run(process_all_descriptions(new_df, file_id, shop, tone))
+        asyncio.run(process_all_descriptions(new_df, file_id, shop, tone, gen_seo, gen_alt))
 
         if "_fingerprint" in new_df.columns:
             new_df = new_df.drop(columns=["_fingerprint"])

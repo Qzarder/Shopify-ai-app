@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSubmit, useLoaderData, useActionData } from "react-router";
-import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField } from "@shopify/polaris";
+import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 
@@ -111,12 +111,15 @@ export default function Index() {
   const [file, setFile] = useState(null);
   const [tone, setTone] = useState("Neutral & Professional");
   const [supplierName, setSupplierName] = useState("");
+  const [genSeo, setGenSeo] = useState(false);
+  const [genAlt, setGenAlt] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState("");
   const [progress, setProgress] = useState(0);
   const [fileId, setFileId] = useState(null);
   const [statusText, setStatusText] = useState("");
   const [isCompleted, setIsCompleted] = useState(false);
+  const [previewRows, setPreviewRows] = useState([]);
 
   useEffect(() => {
     if (actionData?.redirectUrl) {
@@ -159,6 +162,8 @@ formData.append("shop", shopDomain || shop);
     if (supplierName.trim()) {
       formData.append("supplier_name", supplierName.trim());
     }
+    if (genSeo) formData.append("seo", "true");
+    if (genAlt) formData.append("alt", "true");
 
     try {
       // Используем глобальный backendUrl
@@ -176,12 +181,11 @@ formData.append("shop", shopDomain || shop);
     }
   };
 
-  useEffect(() => {
+useEffect(() => {
     let interval;
     if (isProcessing && fileId && !isCompleted) {
       interval = setInterval(async () => {
         try {
-          // Р—РђРњР•РќР•РќРћ: localhost -> backendUrl
           const response = await fetch(`${backendUrl}/status/${fileId}`);
           const data = await response.json();
           if (data.status === "completed") {
@@ -190,6 +194,9 @@ formData.append("shop", shopDomain || shop);
             setProgress(100);
             setMessage("Magic completed!");
             clearInterval(interval);
+            fetch(`${backendUrl}/preview/${fileId}`)
+              .then(r => r.json())
+              .then(d => setPreviewRows(d.rows || []));
           } else if (data.status === "error") {
             setIsProcessing(false);
             setMessage(`Error: ${data.error || "Processing error"}`);
@@ -250,6 +257,13 @@ const handleImportShopify = async () => {
                 disabled={isProcessing || isCompleted}
               />
 
+              {isPro && (
+                <BlockStack gap="200">
+                  <Checkbox label="Generate SEO Title & Meta Description" checked={genSeo} onChange={setGenSeo} disabled={isProcessing || isCompleted} />
+                  <Checkbox label="Generate Image Alt Text" checked={genAlt} onChange={setGenAlt} disabled={isProcessing || isCompleted} />
+                </BlockStack>
+              )}
+
               {!isCompleted && (
                 <Button variant="primary" onClick={handleProcess} loading={isProcessing} disabled={!file || isProcessing}>
                   Start AI Magic
@@ -280,6 +294,40 @@ const handleImportShopify = async () => {
 
               {isCompleted && (
                 <BlockStack gap="300">
+                  {previewRows.length > 0 && (
+                    <Card>
+                      <Text as="h3" variant="headingSm">Preview (first {previewRows.length} items)</Text>
+                      <div style={{ overflowX: "auto", marginTop: "8px" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                          <thead>
+                            <tr style={{ backgroundColor: "#f1f1f1" }}>
+                              <th style={{ padding: "6px", textAlign: "left", border: "1px solid #ddd" }}>Title</th>
+                              <th style={{ padding: "6px", textAlign: "left", border: "1px solid #ddd" }}>AI Description</th>
+                              <th style={{ padding: "6px", textAlign: "left", border: "1px solid #ddd" }}>Price</th>
+                              <th style={{ padding: "6px", textAlign: "left", border: "1px solid #ddd" }}>Type</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {previewRows.map((row, i) => (
+                              <tr key={i}>
+                                <td style={{ padding: "6px", border: "1px solid #ddd", verticalAlign: "top" }}>{row.title}</td>
+                                <td style={{ padding: "6px", border: "1px solid #ddd", verticalAlign: "top", maxWidth: "300px" }}>
+                                  <div dangerouslySetInnerHTML={{ __html: row.body_html?.substring(0, 200) + (row.body_html?.length > 200 ? "..." : "") }} />
+                                  {row.original?.description && (
+                                    <div style={{ marginTop: "4px", padding: "4px", backgroundColor: "#fff3cd", borderRadius: "4px", fontSize: "11px" }}>
+                                      <strong>Original:</strong> {row.original.description?.substring(0, 100)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px", border: "1px solid #ddd", whiteSpace: "nowrap" }}>{row.price}</td>
+                                <td style={{ padding: "6px", border: "1px solid #ddd", whiteSpace: "nowrap" }}>{row.product_type}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+                  )}
                   <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData && !actionData.imported}>
                     Import to Shopify Store
                   </Button>
