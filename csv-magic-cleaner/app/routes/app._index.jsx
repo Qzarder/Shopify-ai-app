@@ -62,11 +62,9 @@ let created = 0;
   try {
     await billing.require({
       plans: [MONTHLY_PLAN],
-      isTest: true,
       onFailure: async () => {
         throw await billing.request({
           plan: MONTHLY_PLAN,
-          isTest: true,
           returnUrl: returnUrl,
         });
       }
@@ -89,7 +87,6 @@ export const loader = async ({ request }) => {
   
   const checkResult = await billing.check({
     plans: [MONTHLY_PLAN],
-    isTest: true,
   });
 
   console.log("[BILLING DEBUG] checkResult:", JSON.stringify(checkResult));
