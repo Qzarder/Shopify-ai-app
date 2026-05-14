@@ -84,14 +84,13 @@ def advanced_robust_loader(file_path: str) -> pd.DataFrame:
         if line.startswith('"') and line.endswith('"') and '","' not in line:
             line = line[1:-1].replace('""', '"')
         cleaned_lines.append(line)
-
     try:
         dialect = csv.Sniffer().sniff(cleaned_lines[0][:1024], delimiters=",;\t|")
         delimiter = dialect.delimiter
     except Exception:
         delimiter = ","
 
-reader = csv.reader(cleaned_lines, delimiter=delimiter)
+    reader = csv.reader(cleaned_lines, delimiter=delimiter)
     rows = list(reader)
     header = [str(cell).strip() for cell in rows[0]]
     expected_len = len(header)
@@ -377,7 +376,7 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
     save_cache(cache)
 
 
-def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional", supplier_name: str = "", gen_seo: bool = False, gen_alt: bool = False)::
+def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional", supplier_name: str = "", gen_seo: bool = False, gen_alt: bool = False):
     try:
         source_df = advanced_robust_loader(input_path)
         total_rows = len(source_df)
