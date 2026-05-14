@@ -194,9 +194,15 @@ useEffect(() => {
             setProgress(100);
             setMessage("Magic completed!");
             clearInterval(interval);
-            fetch(`${backendUrl}/preview/${fileId}`)
+            fetch(`${backendUrl}/preview/${fileId}?limit=5`)
               .then(r => r.json())
-              .then(d => setPreviewRows(d.rows || []));
+              .then(d => {
+                console.log("PREVIEW response:", d);
+                if (d.rows && Array.isArray(d.rows)) {
+                  setPreviewRows(d.rows);
+                }
+              })
+              .catch(e => console.error("Preview fetch error:", e));
           } else if (data.status === "error") {
             setIsProcessing(false);
             setMessage(`Error: ${data.error || "Processing error"}`);
