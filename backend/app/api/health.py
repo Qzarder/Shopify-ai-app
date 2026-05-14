@@ -8,7 +8,7 @@ def health():
     api_key = os.getenv("OPENAI_API_KEY", "")
     return {
         "status": "ok",
-        "openai_key_preview": api_key[:20] + "..." if api_key else "NOT SET"
+        "openai_key_set": bool(api_key),
     }
 
 @router.get("/test-openai")
