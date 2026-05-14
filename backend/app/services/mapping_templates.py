@@ -7,17 +7,31 @@ from typing import Optional
 
 TEMPLATES_FILE = os.path.join(os.path.dirname(__file__), "mapping_templates.json")
 
+# Module-level — шаблоны маппинга живут весь процесс
+_templates_cache: dict = {}
+
 
 def load_templates() -> dict:
+    global _templates_cache
+    if _templates_cache:
+        return _templates_cache
     if os.path.exists(TEMPLATES_FILE):
-        with open(TEMPLATES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+        try:
+            with open(TEMPLATES_FILE, "r", encoding="utf-8") as f:
+                _templates_cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            _templates_cache = {}
+    return _templates_cache
 
 
 def save_templates(templates: dict):
-    with open(TEMPLATES_FILE, "w", encoding="utf-8") as f:
-        json.dump(templates, f, ensure_ascii=False, indent=2)
+    global _templates_cache
+    _templates_cache = templates
+    try:
+        with open(TEMPLATES_FILE, "w", encoding="utf-8") as f:
+            json.dump(templates, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
 
 
 def _headers_fingerprint(headers: list[str]) -> str:

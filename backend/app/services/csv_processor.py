@@ -131,16 +131,31 @@ def advanced_robust_loader(file_path: str) -> pd.DataFrame:
     return pd.DataFrame(normalized_rows, columns=header).fillna("")
 
 
+# Module-level cache — живёт весь процесс, переживает множество запросов
+_html_cache: dict = {}
+
+
 def load_cache() -> dict:
+    global _html_cache
+    if _html_cache:
+        return _html_cache
     if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                _html_cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            _html_cache = {}
+    return _html_cache
 
 
 def save_cache(cache: dict):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
+    global _html_cache
+    _html_cache = cache
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
 
 
 
@@ -398,11 +413,9 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
             if matched:
                 column_map = matched["column_map"]
                 template_fp = matched["fingerprint"]
-                if os.getenv("DEBUG"):
-                    print(f"DEBUG template matched for {file_id}: {matched['supplier_name']} (score={matched['match_score']:.0%})")
+                print(f"[CACHE] Template HIT: '{matched['supplier_name']}' score={matched['match_score']:.0%} shop={shop}")
             else:
-                if os.getenv("DEBUG"):
-                    print(f"DEBUG no template match for {file_id}, using AI mapping")
+                print(f"[CACHE] Template MISS: no match for shop={shop}, headers={csv_headers[:3]}...")
 
         if column_map is None:
             column_map = identify_columns(source_df.head(3))
