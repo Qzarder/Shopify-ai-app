@@ -91,10 +91,10 @@ def advanced_robust_loader(file_path: str) -> pd.DataFrame:
     except Exception:
         delimiter = ","
 
-    reader = csv.reader(cleaned_lines, delimiter=delimiter)
+reader = csv.reader(cleaned_lines, delimiter=delimiter)
     rows = list(reader)
     header = [str(cell).strip() for cell in rows[0]]
-expected_len = len(header)
+    expected_len = len(header)
 
     normalized_rows = []
     warnings = []
