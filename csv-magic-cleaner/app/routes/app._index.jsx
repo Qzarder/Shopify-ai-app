@@ -28,22 +28,22 @@ let created = 0;
       let errors = [];
       for (const product of products) {
         const response = await admin.graphql(
-          `#graphql
-          mutation productCreate($input: ProductCreateInput!) {
-            productCreate(product: $input) {
-              product { id title }
-              userErrors { field message }
-            }
-          }`,
-          { variables: {
-            input: {
-              title: product.title,
-              descriptionHtml: product.descriptionHtml,
-              vendor: product.vendor,
-              productType: product.productType,
-              tags: product.tags,
-            }
-          }}
+            `#graphql
+            mutation productCreate($input: ProductInput!) {
+              productCreate(input: $input) {
+                product { id title }
+                userErrors { field message }
+              }
+            }`,
+            { variables: {
+              input: {
+                title: product.title,
+                descriptionHtml: product.descriptionHtml,
+                vendor: product.vendor,
+                productType: product.productType,
+                tags: product.tags,
+              }
+            }}
         );
       const json = await response.json();
       if (json.data.productCreate.userErrors.length > 0) {

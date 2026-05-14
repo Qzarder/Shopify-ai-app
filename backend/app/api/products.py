@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 import csv
 from pathlib import Path
 from app.services.state import processing_status
+from app.services.payment_store import is_paid
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -14,6 +15,9 @@ async def get_products(file_id: str):
     file_path = OUTPUT_DIR / f"shopify_ready_{file_id}.csv"
     if not file_path.exists():
         return JSONResponse(status_code=404, content={"error": "Products not found"})
+
+    if not is_paid(file_id):
+        return JSONResponse(status_code=402, content={"error": "Payment required"})
 
     status = processing_status.get(file_id, {})
 
