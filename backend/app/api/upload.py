@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from app.services.csv_processor import process_csv_file
-from app.services.state import processing_status
+from app.services.state import processing_status, set_status
 from app.services.limits import check_and_update_limit
 from app.services.mapping_templates import list_templates, delete_template, save_template as save_tmpl
 
@@ -71,7 +71,7 @@ async def upload_file(
     with open(input_path, "wb") as buffer:
         buffer.write(content)
 
-    processing_status[file_id] = {"current": 0, "total": row_count, "status": "starting"}
+    set_status(file_id, {"current": 0, "total": row_count, "status": "starting"})
     background_tasks.add_task(process_csv_file, input_path, output_path, file_id, shop, selected_tone, supplier_name or "", seo.lower() == "true", alt.lower() == "true")
 
     return {"file_id": file_id, "message": "Processing started"}

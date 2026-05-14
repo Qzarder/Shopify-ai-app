@@ -1,5 +1,7 @@
 # Секреты
 .env
+*.env
+.env.*
 
 # Виртуальное окружение
 venv/
@@ -7,13 +9,56 @@ env/
 .venv/
 .vscode/
 
-# Кэш питона
+# Кэш Python
 __pycache__/
 *.pyc
+*.pyo
 
-# Папки с файлами пользователей и кэш
+# Папки с файлами пользователей (никогда не коммитим)
 uploads/
 outputs/
+backend/uploads/
+backend/outputs/
+
+# Временные файлы обработки
+tmp/
+backend/tmp/
+
+# Обработанные данные
+data/processed/
+data/
+
+# Сервисные файлы с пользовательскими данными
+backend/app/services/html_cache.json
+backend/app/services/user_limits.json
+backend/app/services/mapping_templates.json
+
+# Алиасы для корневого уровня (на случай разных структур)
 html_cache.json
 user_limits.json
-node_modules
+mapping_templates.json
+
+# Status files (processing state persisted to disk)
+backend/status/
+status/
+
+# Node
+node_modules/
+.npm/
+
+# Build
+build/
+dist/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Generated structure files
+project_structure.txt
+tree.txt
+
+# OS
+.DS_Store
+Thumbs.db

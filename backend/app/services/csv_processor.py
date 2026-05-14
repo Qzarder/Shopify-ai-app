@@ -7,7 +7,7 @@ import os
 import pandas as pd
 from openai import AsyncOpenAI, OpenAI
 
-from app.services.state import processing_status
+from app.services.state import processing_status, set_status
 from app.services.mapping_templates import find_matching_template, save_template, increment_usage
 
 api_key = os.getenv("OPENAI_API_KEY")
@@ -339,12 +339,17 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
     sem = asyncio.Semaphore(15)
     cache = load_cache()
 
+    cache_hits = 0
+    cache_misses = 0
+
     async def task_wrapper(index, title, desc, current_tone, fingerprint):
-        cache_key = fingerprint
-        if cache_key in cache:
-            return index, cache[cache_key]
+        nonlocal cache_hits, cache_misses
+        if fingerprint in cache:
+            cache_hits += 1
+            return index, cache[fingerprint]
+        cache_misses += 1
         result = await clean_and_format_html_async(title, desc, sem, current_tone, gen_seo, gen_alt)
-        cache[cache_key] = result
+        cache[fingerprint] = result
         return index, result
 
     tasks = [
@@ -372,15 +377,17 @@ async def process_all_descriptions(df: pd.DataFrame, file_id: str, shop: str, to
             df.at[index, "Body (HTML)"] = result
         completed += 1
         processing_status[file_id]["current"] = completed
+        # No disk write here — hot path, in-memory is fine for progress updates
 
     save_cache(cache)
+    print(f"[CACHE] file_id={file_id}: hits={cache_hits}, misses={cache_misses}, total={cache_hits + cache_misses}")
 
 
 def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str, tone: str = "Neutral & Professional", supplier_name: str = "", gen_seo: bool = False, gen_alt: bool = False):
     try:
         source_df = advanced_robust_loader(input_path)
         total_rows = len(source_df)
-        processing_status[file_id] = {"current": 0, "total": total_rows, "status": "mapping"}
+        set_status(file_id, {"current": 0, "total": total_rows, "status": "mapping"})
 
         csv_headers = list(source_df.columns)
 
@@ -399,10 +406,9 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
 
         if column_map is None:
             column_map = identify_columns(source_df.head(3))
-            if supplier_name:
-                save_template(shop, supplier_name, csv_headers, column_map, tone)
-                if os.getenv("DEBUG"):
-                    print(f"DEBUG saved template for {file_id}: {supplier_name}")
+            template_name = supplier_name or "auto-detected"
+            save_template(shop, template_name, csv_headers, column_map, tone)
+            print(f"[CACHE] Saved column mapping template for '{template_name}' (shop={shop})")
 
         if template_fp:
             increment_usage(template_fp)
@@ -438,6 +444,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
             )
 
         processing_status[file_id]["status"] = "cleaning"
+        set_status(file_id, processing_status[file_id])
         asyncio.run(process_all_descriptions(new_df, file_id, shop, tone, gen_seo, gen_alt))
 
         if "_fingerprint" in new_df.columns:
@@ -452,5 +459,6 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
         )
 
         processing_status[file_id]["status"] = "completed"
+        set_status(file_id, processing_status[file_id])
     except Exception as e:
-        processing_status[file_id] = {"current": 0, "total": 0, "status": "error", "error": str(e)}
+        set_status(file_id, {"current": 0, "total": 0, "status": "error", "error": str(e)})

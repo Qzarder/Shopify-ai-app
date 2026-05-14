@@ -29,9 +29,22 @@ STATIC_DIR = BASE_DIR / "static"
 # ---------- APP SETUP ----------
 app = FastAPI(title="Shopify AI Importer")
 
+_PROD_ORIGINS = [
+    "https://admin.shopify.com",
+    "https://csv-magic-cleaner-blue-lake-2582.fly.dev",
+]
+_DEV_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:8000",
+    "http://127.0.0.1:3000",
+]
+_is_dev = os.getenv("ENV", "production").lower() != "production"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://admin.shopify.com", "https://csv-magic-cleaner-blue-lake-2582.fly.dev"],
+    allow_origins=_PROD_ORIGINS + (_DEV_ORIGINS if _is_dev else []),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
