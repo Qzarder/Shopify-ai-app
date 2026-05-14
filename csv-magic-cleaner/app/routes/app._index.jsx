@@ -328,13 +328,13 @@ const handleImportShopify = async () => {
                       </div>
                     </Card>
                   )}
-                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData && !actionData.imported}>
+                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData?.imported === undefined && actionData?.error === undefined}>
                     Import to Shopify Store
                   </Button>
                   {actionData?.imported !== undefined && (
                     <Banner tone={actionData.errors?.length > 0 ? "warning" : "success"}>
-                      Imported {actionData.imported}/{actionData.total} products
-                      {actionData.errors?.length > 0 && `. Skipped: ${actionData.errors.length}`}
+                      {actionData.error ? actionData.error : `Imported ${actionData.imported}/${actionData.total} products`}
+                      {actionData.errors?.length > 0 && !actionData.error && `. ${actionData.errors.length} skipped`}
                     </Banner>
                   )}
                 </BlockStack>
