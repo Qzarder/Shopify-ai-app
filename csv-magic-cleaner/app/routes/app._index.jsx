@@ -24,35 +24,52 @@ const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/produc
       }
       const { products } = data;
 
-let created = 0;
+      const CONCURRENCY = 5;
+      let created = 0;
       let errors = [];
-      for (const product of products) {
+
+      const importOne = async (product) => {
         const response = await admin.graphql(
-            `#graphql
-            mutation productCreate($input: ProductInput!) {
-              productCreate(input: $input) {
-                product { id title }
-                userErrors { field message }
-              }
-            }`,
-            { variables: {
+          `#graphql
+          mutation productCreate($input: ProductInput!) {
+            productCreate(input: $input) {
+              product { id title }
+              userErrors { field message }
+            }
+          }`,
+          {
+            variables: {
               input: {
                 title: product.title,
                 descriptionHtml: product.descriptionHtml,
                 vendor: product.vendor,
                 productType: product.productType,
                 tags: product.tags,
-              }
-            }}
+              },
+            },
+          }
         );
-      const json = await response.json();
-      if (json.data.productCreate.userErrors.length > 0) {
-        errors.push(...json.data.productCreate.userErrors);
-      } else {
-        created++;
+        const json = await response.json();
+        if (json.data.productCreate.userErrors.length > 0) {
+          return { ok: false, errors: json.data.productCreate.userErrors };
+        }
+        return { ok: true };
+      };
+
+      // Параллельный импорт батчами по CONCURRENCY штук
+      for (let i = 0; i < products.length; i += CONCURRENCY) {
+        const batch = products.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(batch.map(importOne));
+        for (const result of results) {
+          if (result.ok) {
+            created++;
+          } else {
+            errors.push(...result.errors);
+          }
+        }
       }
-    }
-    return { imported: created, total: products.length, errors: errors.slice(0, 5) };
+
+      return { imported: created, total: products.length, errors: errors.slice(0, 5) };
   }
 
   const pathParts = url.pathname.split('/');
