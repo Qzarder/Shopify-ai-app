@@ -17,10 +17,11 @@ async def get_products(file_id: str):
         products = []
         with open(file_path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            for row in reader:
+            for row_idx, row in enumerate(reader):
                 title = row.get("Title", "").strip()
-                if not title:
-                    continue
+                # Never skip — use fallback title so every row is imported
+                if not title or title.lower() in ("nan", "none", "null"):
+                    title = f"Product {row_idx + 1}"
                 product = {
                     "title": title,
                     "descriptionHtml": row.get("Body (HTML)", ""),
