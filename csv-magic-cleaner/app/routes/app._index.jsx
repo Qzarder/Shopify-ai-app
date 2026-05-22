@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSubmit, useLoaderData, useActionData } from "react-router";
 import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
@@ -156,10 +156,23 @@ export default function Index() {
   const [statusText, setStatusText] = useState("");
   const [isCompleted, setIsCompleted] = useState(false);
   const [previewRows, setPreviewRows] = useState([]);
+  const [totalProcessed, setTotalProcessed] = useState(0);
+  const [isImporting, setIsImporting] = useState(false);
+  const importResultRef = useRef(null);
 
   useEffect(() => {
     if (actionData?.redirectUrl) {
       window.open(actionData.redirectUrl, "_top");
+    }
+  }, [actionData]);
+
+  // Сбросить isImporting и автоскролл к результату когда пришёл ответ
+  useEffect(() => {
+    if (actionData?.imported !== undefined || actionData?.error !== undefined) {
+      setIsImporting(false);
+      setTimeout(() => {
+        importResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
     }
   }, [actionData]);
 
@@ -170,6 +183,7 @@ export default function Index() {
     setFileId(null);
     setIsCompleted(false);
     setStatusText("");
+    setTotalProcessed(0);
   }, []);
 
   const handleToneChange = useCallback((value) => setTone(value), []);
@@ -189,6 +203,7 @@ export default function Index() {
     setProgress(0);
     setIsCompleted(false);
     setStatusText("Uploading file...");
+    setTotalProcessed(0);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -228,6 +243,7 @@ useEffect(() => {
             setIsCompleted(true);
             setIsProcessing(false);
             setProgress(100);
+            if (data.total > 0) setTotalProcessed(data.total);
             setMessage("Magic completed!");
             clearInterval(interval);
             fetch(`${backendUrl}/preview/${fileId}?limit=5`)
@@ -246,6 +262,7 @@ useEffect(() => {
           } else if (data.total > 0) {
             const currentProgress = Math.round((data.current / data.total) * 100);
             setProgress(currentProgress);
+            setTotalProcessed(data.total);
             setStatusText(`Processing: ${data.current} of ${data.total}...`);
           }
         } catch (error) {
@@ -256,7 +273,8 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, [isProcessing, fileId, isCompleted]);
 
-const handleImportShopify = async () => {
+const handleImportShopify = () => {
+    setIsImporting(true);
     const formData = new FormData();
     formData.append("fileId", fileId);
     submit(formData, { method: "post" });
@@ -336,6 +354,11 @@ const handleImportShopify = async () => {
 
               {isCompleted && (
                 <BlockStack gap="300">
+                  {totalProcessed > 0 && (
+                    <Banner tone="success">
+                      ✓ {totalProcessed} products processed and ready to import
+                    </Banner>
+                  )}
                   {previewRows.length > 0 && (
                     <Card>
                       <Text as="h3" variant="headingSm">Preview (first {previewRows.length} items)</Text>
@@ -370,9 +393,18 @@ const handleImportShopify = async () => {
                       </div>
                     </Card>
                   )}
-                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={actionData !== undefined && actionData?.imported === undefined && actionData?.error === undefined}>
+                  <Button variant="primary" size="large" onClick={handleImportShopify} loading={isImporting} disabled={isImporting}>
                     Import to Shopify Store
                   </Button>
+
+                  {isImporting && (
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodyMd" tone="subdued">Importing products to Shopify...</Text>
+                      <ProgressBar progress={0} tone="primary" />
+                    </BlockStack>
+                  )}
+
+                  <div ref={importResultRef} />
                   {actionData?.imported !== undefined && (
                     <Banner tone={actionData.error ? "critical" : (actionData.errors?.length > 0 || actionData.duplicates?.length > 0) ? "warning" : "success"}>
                       {actionData.error
