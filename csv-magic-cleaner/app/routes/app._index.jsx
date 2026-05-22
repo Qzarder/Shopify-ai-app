@@ -27,9 +27,23 @@ const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/produc
       let created = 0;
       let errors = [];
 
+      const makeHandle = (title, suffix = "") => {
+        const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        return suffix ? `${base}-${suffix}` : base;
+      };
+
       const importOne = async (product) => {
-        for (let attempt = 0; attempt < 3; attempt++) {
+        let handle = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
           try {
+            const input = {
+              title: product.title,
+              descriptionHtml: product.descriptionHtml,
+              vendor: product.vendor,
+              productType: product.productType,
+              tags: product.tags,
+              ...(handle ? { handle } : {}),
+            };
             const response = await admin.graphql(
               `#graphql
               mutation productCreate($input: ProductInput!) {
@@ -38,29 +52,26 @@ const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/produc
                   userErrors { field message }
                 }
               }`,
-              {
-                variables: {
-                  input: {
-                    title: product.title,
-                    descriptionHtml: product.descriptionHtml,
-                    vendor: product.vendor,
-                    productType: product.productType,
-                    tags: product.tags,
-                  },
-                },
-              }
+              { variables: { input } }
             );
             const json = await response.json();
             if (json.errors?.[0]?.extensions?.code === "THROTTLED") {
               await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
               continue;
             }
-            if (json.data?.productCreate?.userErrors?.length > 0) {
-              return { ok: false, errors: json.data.productCreate.userErrors };
+            const userErrors = json.data?.productCreate?.userErrors ?? [];
+            const handleTaken = userErrors.some(e => e.message?.includes("Handle has already been taken"));
+            if (handleTaken) {
+              // Генерим уникальный handle и ретраим
+              handle = makeHandle(product.title, Date.now());
+              continue;
+            }
+            if (userErrors.length > 0) {
+              return { ok: false, errors: userErrors };
             }
             return { ok: true };
           } catch {
-            if (attempt === 2) return { ok: false, errors: [{ message: "Request failed" }] };
+            if (attempt === 3) return { ok: false, errors: [{ message: "Request failed" }] };
             await new Promise(r => setTimeout(r, 500));
           }
         }
