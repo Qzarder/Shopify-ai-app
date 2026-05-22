@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSubmit, useLoaderData, useActionData } from "react-router";
-import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox } from "@shopify/polaris";
+import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox, Divider, InlineStack } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 
@@ -291,6 +291,22 @@ const handleImportShopify = () => {
                 <Text as="h2" variant="headingMd">AI CSV Cleaner</Text>
                 {isPro && <Badge tone="success">Pro Plan Active</Badge>}
               </div>
+
+              {/* Pricing info — always visible so reviewers and merchants understand the billing flow */}
+              {!isPro && (
+                <Banner tone="info">
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodyMd" fontWeight="bold">Free plan: up to 150 products / month</Text>
+                    <Text as="p" variant="bodyMd">Upload your CSV and let AI rewrite your product descriptions. Once you reach the 150-product limit, you will be prompted to upgrade to the Pro plan ($19.99/mo) via Shopify billing — no external payment required.</Text>
+                    <Text as="p" variant="bodyMd">Pro plan unlocks: unlimited products, AI-generated SEO titles, meta descriptions, and image alt text.</Text>
+                    <div style={{ marginTop: "8px" }}>
+                      <Button onClick={() => submit({}, { method: "post" })} variant="plain">
+                        Upgrade to Pro — $19.99/mo →
+                      </Button>
+                    </div>
+                  </BlockStack>
+                </Banner>
+              )}
 
               <DropZone onDrop={handleDropZoneDrop} accept=".csv">
                 {file ? (

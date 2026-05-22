@@ -11,7 +11,7 @@ export default function HowToUsePage() {
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">Getting Started</Text>
               <List type="number">
-                <List.Item>Export a product CSV from your supplier (AliExpress, CJ Dropshipping, etc.)</List.Item>
+                <List.Item>Export a product CSV file from your own supplier or product catalog</List.Item>
                 <List.Item>Go to the Home page and upload your CSV file</List.Item>
                 <List.Item>Choose a Tone of Voice for the AI copywriter</List.Item>
                 <List.Item>Optionally enter a supplier name to save the column mapping for future uploads</List.Item>
