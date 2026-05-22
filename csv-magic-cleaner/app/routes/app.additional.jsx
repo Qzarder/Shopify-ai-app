@@ -1,18 +1,40 @@
-import { Page, Layout, Card, BlockStack, Text, List } from "@shopify/polaris";
+import { Page, Layout, Card, BlockStack, Text, List, Banner, Button } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
+import { useSubmit } from "react-router";
 
 export default function HowToUsePage() {
+  const submit = useSubmit();
+
   return (
     <Page>
       <TitleBar title="How to Use" />
       <Layout>
+        <Layout.Section>
+          <Banner tone="info">
+            <BlockStack gap="200">
+              <Text as="p" variant="bodyMd" fontWeight="bold">Free plan: process up to 150 products per month — no payment required to get started.</Text>
+              <Text as="p" variant="bodyMd">
+                Once you reach the 150-product limit, simply upload your next file and you will be redirected to the Shopify billing page to upgrade to the Pro plan ($19.99/mo).
+                All payments are handled securely through Shopify — no external accounts or credit cards entered outside of Shopify.
+              </Text>
+              <Text as="p" variant="bodyMd">
+                Pro plan unlocks: <strong>unlimited products</strong>, AI-generated <strong>SEO titles</strong>, <strong>meta descriptions</strong>, and <strong>image alt text</strong>.
+              </Text>
+              <div>
+                <Button onClick={() => submit({}, { method: "post", action: "/app" })} variant="primary">
+                  Upgrade to Pro — $19.99/mo
+                </Button>
+              </div>
+            </BlockStack>
+          </Banner>
+        </Layout.Section>
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">Getting Started</Text>
               <List type="number">
                 <List.Item>Export a product CSV file from your own supplier or product catalog</List.Item>
-                <List.Item>Go to the Home page and upload your CSV file</List.Item>
+                <List.Item>Go to the <strong>Home</strong> page and upload your CSV file</List.Item>
                 <List.Item>Choose a Tone of Voice for the AI copywriter</List.Item>
                 <List.Item>Optionally enter a supplier name to save the column mapping for future uploads</List.Item>
                 <List.Item>Click <strong>Start AI Magic</strong> and wait for processing to complete</List.Item>
