@@ -24,49 +24,54 @@ const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/produc
       }
       const { products } = data;
 
-      const CONCURRENCY = 5;
       let created = 0;
       let errors = [];
 
       const importOne = async (product) => {
-        const response = await admin.graphql(
-          `#graphql
-          mutation productCreate($input: ProductInput!) {
-            productCreate(input: $input) {
-              product { id title }
-              userErrors { field message }
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const response = await admin.graphql(
+              `#graphql
+              mutation productCreate($input: ProductInput!) {
+                productCreate(input: $input) {
+                  product { id title }
+                  userErrors { field message }
+                }
+              }`,
+              {
+                variables: {
+                  input: {
+                    title: product.title,
+                    descriptionHtml: product.descriptionHtml,
+                    vendor: product.vendor,
+                    productType: product.productType,
+                    tags: product.tags,
+                  },
+                },
+              }
+            );
+            const json = await response.json();
+            if (json.errors?.[0]?.extensions?.code === "THROTTLED") {
+              await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+              continue;
             }
-          }`,
-          {
-            variables: {
-              input: {
-                title: product.title,
-                descriptionHtml: product.descriptionHtml,
-                vendor: product.vendor,
-                productType: product.productType,
-                tags: product.tags,
-              },
-            },
+            if (json.data?.productCreate?.userErrors?.length > 0) {
+              return { ok: false, errors: json.data.productCreate.userErrors };
+            }
+            return { ok: true };
+          } catch {
+            if (attempt === 2) return { ok: false, errors: [{ message: "Request failed" }] };
+            await new Promise(r => setTimeout(r, 500));
           }
-        );
-        const json = await response.json();
-        if (json.data.productCreate.userErrors.length > 0) {
-          return { ok: false, errors: json.data.productCreate.userErrors };
         }
-        return { ok: true };
+        return { ok: false, errors: [{ message: "Max retries exceeded" }] };
       };
 
-      // Параллельный импорт батчами по CONCURRENCY штук
-      for (let i = 0; i < products.length; i += CONCURRENCY) {
-        const batch = products.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(batch.map(importOne));
-        for (const result of results) {
-          if (result.ok) {
-            created++;
-          } else {
-            errors.push(...result.errors);
-          }
-        }
+      // Все продукты параллельно одновременно
+      const results = await Promise.all(products.map(importOne));
+      for (const result of results) {
+        if (result.ok) created++;
+        else errors.push(...result.errors);
       }
 
       return { imported: created, total: products.length, errors: errors.slice(0, 5) };
