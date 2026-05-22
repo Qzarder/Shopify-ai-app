@@ -16,76 +16,82 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
 
   const fileId = formData.get("fileId");
-  if (fileId) {
-const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`);
+  const forceImport = formData.get("forceImport") === "true";
+  const forceProductsJson = formData.get("forceProducts");
+
+  if (fileId || forceProductsJson) {
+    let products;
+
+    if (forceProductsJson) {
+      // Повторный импорт дублей по кнопке "Add anyway"
+      products = JSON.parse(forceProductsJson);
+    } else {
+      const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`);
       const data = await backendRes.json();
       if (!data.products || !Array.isArray(data.products)) {
-        return { error: data.error || "No products found", imported: 0, total: 0, errors: [] };
+        return { error: data.error || "No products found", imported: 0, total: 0, errors: [], duplicates: [] };
       }
-      const { products } = data;
+      products = data.products;
+    }
 
-      let created = 0;
-      let errors = [];
+    let created = 0;
+    let errors = [];
+    let duplicates = [];
 
-      const makeHandle = (title, suffix = "") => {
-        const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        return suffix ? `${base}-${suffix}` : base;
-      };
-
-      const importOne = async (product) => {
-        let handle = null;
-        for (let attempt = 0; attempt < 4; attempt++) {
-          try {
-            const input = {
-              title: product.title,
-              descriptionHtml: product.descriptionHtml,
-              vendor: product.vendor,
-              productType: product.productType,
-              tags: product.tags,
-              ...(handle ? { handle } : {}),
-            };
-            const response = await admin.graphql(
-              `#graphql
-              mutation productCreate($input: ProductInput!) {
-                productCreate(input: $input) {
-                  product { id title }
-                  userErrors { field message }
-                }
-              }`,
-              { variables: { input } }
-            );
-            const json = await response.json();
-            if (json.errors?.[0]?.extensions?.code === "THROTTLED") {
-              await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-              continue;
-            }
-            const userErrors = json.data?.productCreate?.userErrors ?? [];
-            const handleTaken = userErrors.some(e => e.message?.includes("Handle has already been taken"));
-            if (handleTaken) {
-              // Генерим уникальный handle и ретраим
-              handle = makeHandle(product.title, Date.now());
-              continue;
-            }
-            if (userErrors.length > 0) {
-              return { ok: false, errors: userErrors };
-            }
-            return { ok: true };
-          } catch {
-            if (attempt === 3) return { ok: false, errors: [{ message: "Request failed" }] };
-            await new Promise(r => setTimeout(r, 500));
+    const importOne = async (product) => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const handle = forceImport
+            ? product.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now()
+            : undefined;
+          const input = {
+            title: product.title,
+            descriptionHtml: product.descriptionHtml,
+            vendor: product.vendor,
+            productType: product.productType,
+            tags: product.tags,
+            ...(handle ? { handle } : {}),
+          };
+          const response = await admin.graphql(
+            `#graphql
+            mutation productCreate($input: ProductInput!) {
+              productCreate(input: $input) {
+                product { id title }
+                userErrors { field message }
+              }
+            }`,
+            { variables: { input } }
+          );
+          const json = await response.json();
+          if (json.errors?.[0]?.extensions?.code === "THROTTLED") {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
           }
+          const userErrors = json.data?.productCreate?.userErrors ?? [];
+          const handleTaken = userErrors.some(e => e.message?.includes("Handle has already been taken"));
+          if (handleTaken) {
+            return { ok: false, duplicate: true, product };
+          }
+          if (userErrors.length > 0) {
+            return { ok: false, errors: userErrors };
+          }
+          return { ok: true };
+        } catch {
+          if (attempt === 2) return { ok: false, errors: [{ message: "Request failed" }] };
+          await new Promise(r => setTimeout(r, 500));
         }
-        return { ok: false, errors: [{ message: "Max retries exceeded" }] };
-      };
-
-      // Все продукты параллельно одновременно
-      const results = await Promise.all(products.map(importOne));
-      for (const result of results) {
-        if (result.ok) created++;
-        else errors.push(...result.errors);
       }
+      return { ok: false, errors: [{ message: "Max retries exceeded" }] };
+    };
 
-      return { imported: created, total: products.length, errors: errors.slice(0, 5) };
+    const results = await Promise.all(products.map(importOne));
+    for (const result of results) {
+      if (result.ok) created++;
+      else if (result.duplicate) duplicates.push(result.product);
+      else if (result.errors) errors.push(...result.errors);
+    }
+
+    return { imported: created, total: products.length, errors: errors.slice(0, 5), duplicates };
   }
 
   const pathParts = url.pathname.split('/');
@@ -368,13 +374,34 @@ const handleImportShopify = async () => {
                     Import to Shopify Store
                   </Button>
                   {actionData?.imported !== undefined && (
-                    <Banner tone={actionData.error ? "critical" : actionData.errors?.length > 0 ? "warning" : "success"}>
+                    <Banner tone={actionData.error ? "critical" : (actionData.errors?.length > 0 || actionData.duplicates?.length > 0) ? "warning" : "success"}>
                       {actionData.error
                         ? actionData.error
                         : `Imported ${actionData.imported}/${actionData.total} products`}
+                      {actionData.duplicates?.length > 0 && (
+                        <div style={{marginTop: "8px"}}>
+                          <strong>{actionData.duplicates.length} already exist in your catalog:</strong>
+                          <ul style={{marginTop: "4px", paddingLeft: "16px"}}>
+                            {actionData.duplicates.map((p, i) => <li key={i}>{p.title}</li>)}
+                          </ul>
+                          <div style={{marginTop: "8px"}}>
+                            <Button
+                              size="slim"
+                              onClick={() => {
+                                const fd = new FormData();
+                                fd.append("forceProducts", JSON.stringify(actionData.duplicates));
+                                fd.append("forceImport", "true");
+                                submit(fd, { method: "post" });
+                              }}
+                            >
+                              Add anyway
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {actionData.errors?.length > 0 && !actionData.error && (
                         <div style={{marginTop: "8px"}}>
-                          <strong>{actionData.errors.length} skipped:</strong>
+                          <strong>{actionData.errors.length} failed:</strong>
                           <ul style={{marginTop: "4px", paddingLeft: "16px"}}>
                             {actionData.errors.map((e, i) => (
                               <li key={i}>{e.field ? `${e.field}: ` : ""}{e.message}</li>
