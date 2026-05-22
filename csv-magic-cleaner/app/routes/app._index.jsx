@@ -358,8 +358,19 @@ const handleImportShopify = async () => {
                   </Button>
                   {actionData?.imported !== undefined && (
                     <Banner tone={actionData.error ? "critical" : actionData.errors?.length > 0 ? "warning" : "success"}>
-                      {actionData.error ? actionData.error : `Imported ${actionData.imported}/${actionData.total} products`}
-                      {actionData.errors?.length > 0 && !actionData.error && `. ${actionData.errors.length} skipped`}
+                      {actionData.error
+                        ? actionData.error
+                        : `Imported ${actionData.imported}/${actionData.total} products`}
+                      {actionData.errors?.length > 0 && !actionData.error && (
+                        <div style={{marginTop: "8px"}}>
+                          <strong>{actionData.errors.length} skipped:</strong>
+                          <ul style={{marginTop: "4px", paddingLeft: "16px"}}>
+                            {actionData.errors.map((e, i) => (
+                              <li key={i}>{e.field ? `${e.field}: ` : ""}{e.message}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </Banner>
                   )}
                 </BlockStack>
