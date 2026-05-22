@@ -471,7 +471,26 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
             escapechar="\\",
         )
 
+        # Сохраняем продукты в статус — переживает рестарты Render
+        products_list = []
+        for _, row in new_df.iterrows():
+            title = str(row.get("Title", "")).strip()
+            if not title:
+                continue
+            product = {
+                "title": title,
+                "descriptionHtml": str(row.get("Body (HTML)", "")),
+                "vendor": str(row.get("Vendor", "")),
+                "productType": str(row.get("Type", "")),
+                "tags": [t.strip() for t in str(row.get("Tags", "")).split(",") if t.strip()],
+                "variants": [{"price": str(row.get("Variant Price", "0.00")), "sku": str(row.get("Variant SKU", ""))}],
+            }
+            if row.get("Image Src"):
+                product["images"] = [{"src": str(row.get("Image Src"))}]
+            products_list.append(product)
+
         processing_status[file_id]["status"] = "completed"
+        processing_status[file_id]["products"] = products_list
         set_status(file_id, processing_status[file_id])
     except Exception as e:
         set_status(file_id, {"current": 0, "total": 0, "status": "error", "error": str(e)})

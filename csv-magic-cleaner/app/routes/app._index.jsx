@@ -352,7 +352,7 @@ const handleImportShopify = async () => {
                     Import to Shopify Store
                   </Button>
                   {actionData?.imported !== undefined && (
-                    <Banner tone={actionData.errors?.length > 0 ? "warning" : "success"}>
+                    <Banner tone={actionData.error ? "critical" : actionData.errors?.length > 0 ? "warning" : "success"}>
                       {actionData.error ? actionData.error : `Imported ${actionData.imported}/${actionData.total} products`}
                       {actionData.errors?.length > 0 && !actionData.error && `. ${actionData.errors.length} skipped`}
                     </Banner>
