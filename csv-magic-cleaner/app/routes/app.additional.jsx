@@ -10,8 +10,10 @@ export const loader = async ({ request }) => {
 
 export default function HowToUsePage() {
   const submit = useSubmit();
-  // Trigger the Billing API upgrade flow via the Home route action.
-  const goToPricing = () => submit({}, { method: "post", action: "/app" });
+  // Trigger the Billing API upgrade flow via the Home INDEX route action.
+  // The "?index" is required so the POST hits the index route's action and not
+  // the parent layout route (which has no action → 405).
+  const goToPricing = () => submit({}, { method: "post", action: "/app?index" });
 
   return (
     <Page>
