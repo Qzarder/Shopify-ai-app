@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 import csv
 from pathlib import Path
+
+from app.services.shopify_auth import verify_session_token
 
 router = APIRouter(prefix="/preview", tags=["preview"])
 
@@ -11,7 +13,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 
 
 @router.get("/{file_id}")
-async def preview(file_id: str, limit: int = 5):
+async def preview(file_id: str, limit: int = 5, shop: str = Depends(verify_session_token)):
     in_path = UPLOAD_DIR / f"{file_id}.csv"
     out_path = OUTPUT_DIR / f"shopify_ready_{file_id}.csv"
 

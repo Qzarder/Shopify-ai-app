@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 import csv
 from pathlib import Path
 from app.services.state import get_status
+from app.services.shopify_auth import verify_backend_secret
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -10,7 +11,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "outputs"
 
 
 @router.get("/{file_id}")
-async def get_products(file_id: str):
+async def get_products(file_id: str, _ok: bool = Depends(verify_backend_secret)):
     # Сначала пробуем читать из файла
     file_path = OUTPUT_DIR / f"shopify_ready_{file_id}.csv"
     if file_path.exists():

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form, Request
+from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Form, Request, Depends
 from fastapi.responses import JSONResponse
 import json
 import uuid
@@ -8,6 +8,7 @@ from app.services.csv_processor import process_csv_file
 from app.services.state import processing_status, set_status
 from app.services.limits import check_and_update_limit
 from app.services.mapping_templates import list_templates, delete_template, save_template as save_tmpl
+from app.services.shopify_auth import verify_session_token
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -23,7 +24,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 async def upload_file(
     request: Request,
     background_tasks: BackgroundTasks,
-    shop: str | None = Form(None),
     file: UploadFile = File(...),
     tone: str | None = Form(None),
     tov: str | None = Form(None),
@@ -31,14 +31,11 @@ async def upload_file(
     supplier_name: str | None = Form(None),
     seo: str = Form("false"),
     alt: str = Form("false"),
+    shop: str = Depends(verify_session_token),
 ):
     file_id = str(uuid.uuid4())
 
-    shop = (shop or "").strip()
-    if not shop:
-        client_host = getattr(request.client, "host", "direct-user")
-        shop = f"direct-web:{client_host}"
-
+    # shop comes from the verified Shopify session token — clients cannot spoof it.
     selected_tone = (tone or tov or "Neutral & Professional").strip() or "Neutral & Professional"
 
     input_path = str(UPLOAD_DIR / f"{file_id}.csv")

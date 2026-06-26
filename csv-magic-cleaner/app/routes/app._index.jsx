@@ -1,18 +1,25 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSubmit, useLoaderData, useActionData } from "react-router";
-import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox, Divider, InlineStack } from "@shopify/polaris";
+import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { authenticate, MONTHLY_PLAN } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 
 // Р“Р»РѕР±Р°Р»СЊРЅР°СЏ СЃСЃС‹Р»РєР° РЅР° С‚РІРѕР№ Р±СЌРєРµРЅРґ РЅР° Render
 const backendUrl = "https://magic-ai-cleaner-app.onrender.com";
 
+// Returns a fresh Shopify session token (App Bridge) for authenticating
+// requests to our backend. Call it right before each fetch — tokens are
+// short-lived (~1 min) and App Bridge issues a fresh one each time.
+async function authHeaders() {
+  // eslint-disable-next-line no-undef
+  const token = await shopify.idToken();
+  return { Authorization: `Bearer ${token}` };
+}
+
 // Р­РљРЁР•Рќ: Р—Р°РїСѓСЃРєР°РµС‚ РїСЂРѕС†РµСЃСЃ РѕРїР»Р°С‚С‹
 export const action = async ({ request }) => {
-  const { billing, session, admin } = await authenticate.admin(request);
-  const { shop } = session;
+  const { admin } = await authenticate.admin(request);
 
-  const url = new URL(request.url);
   const formData = await request.formData();
 
   const fileId = formData.get("fileId");
@@ -26,7 +33,12 @@ export const action = async ({ request }) => {
       // Повторный импорт дублей по кнопке "Add anyway"
       products = JSON.parse(forceProductsJson);
     } else {
-      const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`);
+      // Server-to-server call from the app server to our backend — authenticated
+      // with a shared secret (the browser session token is not available here).
+      const backendRes = await fetch(`https://magic-ai-cleaner-app.onrender.com/products/${fileId}`, {
+        // eslint-disable-next-line no-undef
+        headers: { "X-Backend-Secret": process.env.BACKEND_SHARED_SECRET || "" },
+      });
       const data = await backendRes.json();
       if (!data.products || !Array.isArray(data.products)) {
         return { error: data.error || "No products found", imported: 0, total: 0, errors: [], duplicates: [] };
@@ -94,61 +106,65 @@ export const action = async ({ request }) => {
     return { imported: created, total: products.length, errors: errors.slice(0, 5), duplicates };
   }
 
-  const pathParts = url.pathname.split('/');
-  const appHandle = pathParts[pathParts.indexOf('apps') + 1] || "csv-magic-cleaner";
-  const returnUrl = `https://${shop}/admin/apps/${appHandle}/app`;
-
-  try {
-    await billing.require({
-      plans: [MONTHLY_PLAN],
-      onFailure: async () => {
-        throw await billing.request({
-          plan: MONTHLY_PLAN,
-          returnUrl: returnUrl,
-        });
-      }
-    });
-    return { success: true };
-  } catch (error) {
-    if (error instanceof Response && error.status === 401) {
-      const redirectUrl = error.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url");
-      if (redirectUrl) {
-        return { redirectUrl };
-      }
-    }
-    throw error;
-  }
+  // No import payload — nothing to do here. Upgrades go through Shopify Managed
+  // Pricing (client redirects to the Shopify-hosted plan selection page).
+  return { success: true };
 };
 
 // Р›РћРђР”Р•Р : РџСЂРѕРІРµСЂРєР° СЃС‚Р°С‚СѓСЃР° РїРѕРґРїРёСЃРєРё
 export const loader = async ({ request }) => {
-  const { session, billing } = await authenticate.admin(request);
-  
-  const checkResult = await billing.check({
-    plans: [MONTHLY_PLAN],
-  });
+  const { session, admin } = await authenticate.admin(request);
 
-  console.log("[BILLING DEBUG] checkResult:", JSON.stringify(checkResult));
+  // With Managed Pricing, plans are defined in the Partner Dashboard and billing
+  // is handled by Shopify. We read the merchant's live subscription state via the
+  // Admin API rather than the code-defined Billing API.
+  let isPro = false;
+  try {
+    const resp = await admin.graphql(
+      `#graphql
+      query {
+        currentAppInstallation {
+          activeSubscriptions { name status }
+        }
+      }`
+    );
+    const json = await resp.json();
+    const subs = json?.data?.currentAppInstallation?.activeSubscriptions ?? [];
+    isPro = subs.some((s) => s.status === "ACTIVE");
+  } catch (e) {
+    console.error("[BILLING] subscription check failed:", e);
+  }
 
-  const isPro = checkResult === true || checkResult?.hasActivePayment === true;
+  // Shopify-hosted plan selection page (Managed Pricing).
+  // eslint-disable-next-line no-undef
+  const appHandle = process.env.SHOPIFY_APP_HANDLE || "csv-magic-cleaner";
+  const storeHandle = session.shop.replace(".myshopify.com", "");
+  const pricingUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
 
-  return { 
-    shop: session.shop, 
-    isPro: isPro,
-    shopDomain: session.shop
+  return {
+    shop: session.shop,
+    isPro,
+    shopDomain: session.shop,
+    pricingUrl,
   };
 };
 
 export default function Index() {
-  const { shop, isPro, shopDomain } = useLoaderData();
+  const { isPro, pricingUrl } = useLoaderData();
   const submit = useSubmit();
   const actionData = useActionData();
-  
+
+  // Redirect to the Shopify-hosted Managed Pricing plan selection page.
+  const goToPricing = useCallback(() => {
+    window.open(pricingUrl, "_top");
+  }, [pricingUrl]);
+
   const [file, setFile] = useState(null);
   const [tone, setTone] = useState("Neutral & Professional");
   const [supplierName, setSupplierName] = useState("");
   const [genSeo, setGenSeo] = useState(false);
   const [genAlt, setGenAlt] = useState(false);
+  const [consent, setConsent] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState("");
   const [progress, setProgress] = useState(0);
@@ -207,8 +223,7 @@ export default function Index() {
 
     const formData = new FormData();
     formData.append("file", file);
-formData.append("shop", shopDomain || shop); 
-    formData.append("is_pro", isPro ? "true" : "false"); 
+    formData.append("is_pro", isPro ? "true" : "false");
     formData.append("tone", tone);
     if (supplierName.trim()) {
       formData.append("supplier_name", supplierName.trim());
@@ -217,9 +232,10 @@ formData.append("shop", shopDomain || shop);
     if (genAlt) formData.append("alt", "true");
 
     try {
-      // Используем глобальный backendUrl
+      // shop is derived from the verified session token on the backend
       const response = await fetch(`${backendUrl}/upload`, {
         method: "POST",
+        headers: await authHeaders(),
         body: formData,
       });
 
@@ -237,7 +253,7 @@ useEffect(() => {
     if (isProcessing && fileId && !isCompleted) {
       interval = setInterval(async () => {
         try {
-          const response = await fetch(`${backendUrl}/status/${fileId}`);
+          const response = await fetch(`${backendUrl}/status/${fileId}`, { headers: await authHeaders() });
           const data = await response.json();
           if (data.status === "completed") {
             setIsCompleted(true);
@@ -246,7 +262,7 @@ useEffect(() => {
             if (data.total > 0) setTotalProcessed(data.total);
             setMessage("Magic completed!");
             clearInterval(interval);
-            fetch(`${backendUrl}/preview/${fileId}?limit=5`)
+            fetch(`${backendUrl}/preview/${fileId}?limit=5`, { headers: await authHeaders() })
               .then(r => r.json())
               .then(d => {
                 console.log("PREVIEW response:", d);
@@ -297,10 +313,10 @@ const handleImportShopify = () => {
                 <Banner tone="info">
                   <BlockStack gap="100">
                     <Text as="p" variant="bodyMd" fontWeight="bold">Free plan: up to 150 products / month</Text>
-                    <Text as="p" variant="bodyMd">Upload your CSV and let AI rewrite your product descriptions. Once you reach the 150-product limit, you will be prompted to upgrade to the Pro plan ($19.99/mo) via Shopify billing — no external payment required.</Text>
+                    <Text as="p" variant="bodyMd">Upload your CSV and let AI rewrite your product descriptions. Once you reach the 150-product limit, upgrade to the Pro plan ($19.99/mo). Payment is handled entirely through Shopify's secure checkout — no external accounts or cards.</Text>
                     <Text as="p" variant="bodyMd">Pro plan unlocks: unlimited products, AI-generated SEO titles, meta descriptions, and image alt text.</Text>
                     <div style={{ marginTop: "8px" }}>
-                      <Button onClick={() => submit({}, { method: "post" })} variant="plain">
+                      <Button onClick={goToPricing} variant="plain">
                         Upgrade to Pro — $19.99/mo →
                       </Button>
                     </div>
@@ -321,7 +337,7 @@ const handleImportShopify = () => {
                 value={supplierName}
                 onChange={setSupplierName}
                 autoComplete="off"
-                placeholder="e.g. AliExpress_PetCo"
+                placeholder="e.g. MySupplier_PetProducts"
                 disabled={isProcessing || isCompleted}
               />
 
@@ -341,9 +357,17 @@ const handleImportShopify = () => {
               )}
 
               {!isCompleted && (
-                <Button variant="primary" onClick={handleProcess} loading={isProcessing} disabled={!file || isProcessing}>
-                  Start AI Magic
-                </Button>
+                <BlockStack gap="200">
+                  <Checkbox
+                    label="I confirm that I own these products or have the rights to import, list, and sell them in my store."
+                    checked={consent}
+                    onChange={setConsent}
+                    disabled={isProcessing}
+                  />
+                  <Button variant="primary" onClick={handleProcess} loading={isProcessing} disabled={!file || isProcessing || !consent}>
+                    Start AI Magic
+                  </Button>
+                </BlockStack>
               )}
 
               {isProcessing && (
@@ -359,7 +383,7 @@ const handleImportShopify = () => {
                     <p>{message}</p>
                     {message.includes("Limit exceeded") && !isPro && (
                       <div style={{ marginTop: '10px' }}>
-                        <Button onClick={() => submit({}, { method: "post" })} variant="primary">
+                        <Button onClick={goToPricing} variant="primary">
                           Upgrade to Pro ($19.99/mo)
                         </Button>
                       </div>

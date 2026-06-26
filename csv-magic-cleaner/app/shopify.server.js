@@ -3,13 +3,12 @@ import {
   ApiVersion,
   AppDistribution,
   shopifyApp,
-  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
-// Название тарифа
-export const MONTHLY_PLAN = "Pro Plan"; 
+// Plan name as defined in Shopify Managed Pricing (Partner Dashboard).
+export const MONTHLY_PLAN = "Pro Plan";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -20,24 +19,9 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
-  
-  // Включаем дебаг-логгер, чтобы увидеть реальную ошибку Shopify
-  logger: {
-    level: "debug",
-  },
-  
-  // Правильная структура биллинга для свежего API
-  billing: {
-    [MONTHLY_PLAN]: {
-      lineItems: [
-        {
-          amount: 19.99,
-          currencyCode: "USD",
-          interval: BillingInterval.Every30Days,
-        },
-      ],
-    },
-  },
+
+  // Billing is handled by Shopify Managed Pricing (plans configured in the
+  // Partner Dashboard) — no code-defined billing config required.
 
   future: {
     expiringOfflineAccessTokens: true,

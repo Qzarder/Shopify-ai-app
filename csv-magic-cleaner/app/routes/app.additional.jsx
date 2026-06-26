@@ -1,9 +1,20 @@
 import { Page, Layout, Card, BlockStack, Text, List, Banner, Button } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useSubmit } from "react-router";
+import { useLoaderData } from "react-router";
+import { authenticate } from "../shopify.server";
+
+export const loader = async ({ request }) => {
+  const { session } = await authenticate.admin(request);
+  // eslint-disable-next-line no-undef
+  const appHandle = process.env.SHOPIFY_APP_HANDLE || "csv-magic-cleaner";
+  const storeHandle = session.shop.replace(".myshopify.com", "");
+  const pricingUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
+  return { pricingUrl };
+};
 
 export default function HowToUsePage() {
-  const submit = useSubmit();
+  const { pricingUrl } = useLoaderData();
+  const goToPricing = () => window.open(pricingUrl, "_top");
 
   return (
     <Page>
@@ -14,17 +25,30 @@ export default function HowToUsePage() {
             <BlockStack gap="200">
               <Text as="p" variant="bodyMd" fontWeight="bold">Free plan: process up to 150 products per month — no payment required to get started.</Text>
               <Text as="p" variant="bodyMd">
-                Once you reach the 150-product limit, simply upload your next file and you will be redirected to the Shopify billing page to upgrade to the Pro plan ($19.99/mo).
-                All payments are handled securely through Shopify — no external accounts or credit cards entered outside of Shopify.
+                Once you reach the 150-product limit, upgrade to the Pro plan ($19.99/mo).
+                All payments are handled securely through Shopify's checkout — no external accounts or credit cards entered outside of Shopify.
               </Text>
               <Text as="p" variant="bodyMd">
                 Pro plan unlocks: <strong>unlimited products</strong>, AI-generated <strong>SEO titles</strong>, <strong>meta descriptions</strong>, and <strong>image alt text</strong>.
               </Text>
               <div>
-                <Button onClick={() => submit({}, { method: "post", action: "/app" })} variant="primary">
+                <Button onClick={goToPricing} variant="primary">
                   Upgrade to Pro — $19.99/mo
                 </Button>
               </div>
+            </BlockStack>
+          </Banner>
+        </Layout.Section>
+        <Layout.Section>
+          <Banner tone="warning">
+            <BlockStack gap="100">
+              <Text as="p" variant="bodyMd" fontWeight="bold">Authorized products only</Text>
+              <Text as="p" variant="bodyMd">
+                This app only processes product data from CSV files that you upload. You must own the products you import,
+                or have the proper rights to import, list, and sell them (for example, your own catalog, officially licensed
+                products, or products from a supplier you have a dropshipping agreement with). The app does not scrape or copy
+                product data from other stores or websites.
+              </Text>
             </BlockStack>
           </Banner>
         </Layout.Section>
