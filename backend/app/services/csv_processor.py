@@ -74,77 +74,71 @@ STYLE_PROFILES = {
 
 def advanced_robust_loader(file_path: str) -> pd.DataFrame:
     """
-    Robust CSV loader: tries pd.read_csv() with multiple encodings/separators first
-    (handles quoted multi-line fields correctly), then falls back to a line-by-line
-    parser for truly broken files.  Never drops rows — fixes them instead.
+    Robust CSV loader for messy supplier exports. Parses each line INDEPENDENTLY so
+    a malformed line can never consume the next one (which is how rows get lost), and
+    repairs each row instead of dropping it:
+      - strips a single outer-quote wrapper when a whole line is quoted
+      - pads rows that have too few columns
+      - truncates rows that have too many, rescuing an image URL from the overflow
+    Every non-empty data line becomes exactly one product row.
     """
-    encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
-    separators = [",", ";", "\t", "|"]
+    # Read raw text, trying a few encodings.
+    raw = None
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            with open(file_path, "r", encoding=enc) as f:
+                raw = f.read()
+            break
+        except (UnicodeDecodeError, OSError):
+            continue
+    if raw is None:
+        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            raw = f.read()
 
-    # --- Pass 1: let pandas do the heavy lifting ---
-    for enc in encodings:
-        for sep in separators:
-            try:
-                df = pd.read_csv(
-                    file_path,
-                    encoding=enc,
-                    sep=sep,
-                    dtype=str,
-                    keep_default_na=False,
-                    on_bad_lines="warn",   # skip truly unparseable lines but warn
-                    engine="python",       # more tolerant than C engine
-                )
-                if df.empty or len(df.columns) < 2:
-                    continue
-                # Strip whitespace from headers
-                df.columns = [str(c).strip() for c in df.columns]
-                df = df.fillna("")
-                print(f"[LOADER] pd.read_csv OK: enc={enc} sep={repr(sep)} rows={len(df)} cols={len(df.columns)}")
-                return df
-            except Exception as e:
-                print(f"[LOADER] pd.read_csv failed enc={enc} sep={repr(sep)}: {e}")
-                continue
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        return pd.DataFrame()
 
-    # --- Pass 2: brutal line-by-line fallback for completely broken files ---
-    print(f"[LOADER] Falling back to line-by-line parser for {file_path}")
-    with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-        raw = f.read()
-
-    # Detect delimiter from first line
-    first_line = raw.split("\n")[0]
+    # Detect delimiter from the header line.
     try:
-        dialect = csv.Sniffer().sniff(first_line[:1024], delimiters=",;\t|")
-        delimiter = dialect.delimiter
+        delimiter = csv.Sniffer().sniff(lines[0][:1024], delimiters=",;\t|").delimiter
     except Exception:
         delimiter = ","
 
-    reader = csv.reader(raw.splitlines(), delimiter=delimiter)
-    rows = list(reader)
-    if not rows:
+    def parse_line(text: str) -> list[str]:
+        s = text.strip()
+        # Whole line wrapped in quotes (and not just two adjacent quoted fields) → unwrap.
+        if len(s) >= 2 and s.startswith('"') and s.endswith('"') and '","' not in s:
+            s = s[1:-1].replace('""', '"')
+        try:
+            return next(csv.reader([s], delimiter=delimiter))
+        except Exception:
+            return s.split(delimiter)
+
+    header = [str(c).strip() for c in parse_line(lines[0])]
+    n = len(header)
+    if n < 1:
         return pd.DataFrame()
 
-    header = [str(cell).strip() for cell in rows[0]]
-    expected_len = len(header)
-    normalized_rows = []
-
-    for row_num, row in enumerate(rows[1:], start=1):
-        if not any(cell.strip() for cell in row):
-            continue  # completely blank row — truly skip
-        if len(row) > expected_len:
-            overflow = row[expected_len:]
-            row = row[:expected_len]
-            # Try to salvage image URL from overflow
-            for extra_field in overflow:
-                clean = extra_field.strip()
+    rows = []
+    for line in lines[1:]:
+        fields = parse_line(line)
+        if len(fields) > n:
+            overflow = fields[n:]
+            row = fields[:n]
+            for extra in overflow:
+                clean = str(extra).strip()
                 if clean.startswith("http"):
                     row[-1] = clean
                     break
-        elif len(row) < expected_len:
-            row = row + [""] * (expected_len - len(row))
-        normalized_rows.append(row)
+        elif len(fields) < n:
+            row = fields + [""] * (n - len(fields))
+        else:
+            row = fields
+        rows.append(row)
 
-    df = pd.DataFrame(normalized_rows, columns=header).fillna("")
-    print(f"[LOADER] Line-by-line fallback: rows={len(df)} cols={len(df.columns)}")
+    df = pd.DataFrame(rows, columns=header).fillna("")
+    print(f"[LOADER] parsed rows={len(df)} cols={len(df.columns)} delimiter={delimiter!r}")
     return df
 
 
@@ -490,11 +484,11 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
 
         # Сохраняем продукты в статус — переживает рестарты Render
         products_list = []
-        for row_idx, row in new_df.iterrows():
+        for i, (_row_idx, row) in enumerate(new_df.iterrows()):
             title = str(row.get("Title", "")).strip()
             # Never skip — use fallback title so every row is imported
             if not title or title.lower() in ("nan", "none", "null"):
-                title = f"Product {row_idx + 1}"
+                title = f"Product {i + 1}"
             product = {
                 "title": title,
                 "descriptionHtml": str(row.get("Body (HTML)", "")),
@@ -511,4 +505,7 @@ def process_csv_file(input_path: str, output_path: str, file_id: str, shop: str,
         processing_status[file_id]["products"] = products_list
         set_status(file_id, processing_status[file_id])
     except Exception as e:
+        import traceback
+        print(f"[PROCESS] file_id={file_id} failed: {e}")
+        traceback.print_exc()
         set_status(file_id, {"current": 0, "total": 0, "status": "error", "error": str(e)})
