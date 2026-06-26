@@ -418,11 +418,6 @@ const handleImportShopify = () => {
                                 <td style={{ padding: "6px", border: "1px solid #ddd", verticalAlign: "top" }}>{row.title}</td>
                                 <td style={{ padding: "6px", border: "1px solid #ddd", verticalAlign: "top", maxWidth: "300px" }}>
                                   <div dangerouslySetInnerHTML={{ __html: row.body_html?.substring(0, 200) + (row.body_html?.length > 200 ? "..." : "") }} />
-                                  {row.original?.description && (
-                                    <div style={{ marginTop: "4px", padding: "4px", backgroundColor: "#fff3cd", borderRadius: "4px", fontSize: "11px" }}>
-                                      <strong>Original:</strong> {row.original.description?.substring(0, 100)}
-                                    </div>
-                                  )}
                                 </td>
                                 <td style={{ padding: "6px", border: "1px solid #ddd", whiteSpace: "nowrap" }}>{row.price}</td>
                                 <td style={{ padding: "6px", border: "1px solid #ddd", whiteSpace: "nowrap" }}>{row.product_type}</td>
