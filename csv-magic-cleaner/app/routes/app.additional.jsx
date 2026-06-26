@@ -1,19 +1,55 @@
+import { useEffect } from "react";
 import { Page, Layout, Card, BlockStack, Text, List, Banner, Button } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useSubmit } from "react-router";
-import { authenticate } from "../shopify.server";
+import { useSubmit, useActionData } from "react-router";
+import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
   return null;
 };
 
+// Own Billing API action so the upgrade flow runs on THIS page directly
+// (no bounce through the Home route).
+export const action = async ({ request }) => {
+  const { billing, session } = await authenticate.admin(request);
+  const { shop } = session;
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split("/");
+  const appHandle = pathParts[pathParts.indexOf("apps") + 1] || "csv-magic-cleaner";
+  const returnUrl = `https://${shop}/admin/apps/${appHandle}/app`;
+
+  try {
+    await billing.require({
+      plans: [MONTHLY_PLAN],
+      onFailure: async () => {
+        throw await billing.request({ plan: MONTHLY_PLAN, returnUrl });
+      },
+    });
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Response && error.status === 401) {
+      const redirectUrl = error.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url");
+      if (redirectUrl) {
+        return { redirectUrl };
+      }
+    }
+    throw error;
+  }
+};
+
 export default function HowToUsePage() {
   const submit = useSubmit();
-  // Trigger the Billing API upgrade flow via the Home INDEX route action.
-  // The "?index" is required so the POST hits the index route's action and not
-  // the parent layout route (which has no action → 405).
-  const goToPricing = () => submit({}, { method: "post", action: "/app?index" });
+  const actionData = useActionData();
+
+  useEffect(() => {
+    if (actionData?.redirectUrl) {
+      window.open(actionData.redirectUrl, "_top");
+    }
+  }, [actionData]);
+
+  // Trigger the Billing API upgrade flow on this page directly.
+  const goToPricing = () => submit({}, { method: "post" });
 
   return (
     <Page>
