@@ -14,8 +14,8 @@ import os
 import jwt
 from fastapi import Header, HTTPException
 
-API_KEY = os.getenv("SHOPIFY_API_KEY", "")
-API_SECRET = os.getenv("SHOPIFY_API_SECRET", "")
+API_KEY = os.getenv("SHOPIFY_API_KEY", "").strip()
+API_SECRET = os.getenv("SHOPIFY_API_SECRET", "").strip()
 # Shared secret for trusted server-to-server calls from the Fly app server
 # (the /products endpoint is fetched by the app's `action`, not the browser).
 BACKEND_SHARED_SECRET = os.getenv("BACKEND_SHARED_SECRET", "")
@@ -59,6 +59,17 @@ def verify_session_token(authorization: str | None = Header(None)) -> str:
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Session token expired")
     except jwt.InvalidTokenError as e:
+        # Diagnostic: decode WITHOUT verification to compare audience/dest vs our config.
+        try:
+            unv = jwt.decode(token, options={"verify_signature": False})
+            print(
+                f"[AUTH] token rejected: {e} | "
+                f"token.aud={unv.get('aud')!r} expected.aud={API_KEY!r} | "
+                f"token.dest={unv.get('dest')!r} | "
+                f"api_secret_len={len(API_SECRET)}"
+            )
+        except Exception as inner:
+            print(f"[AUTH] token rejected: {e} (unverified decode failed: {inner})")
         raise HTTPException(status_code=401, detail=f"Invalid session token: {e}")
 
     dest = payload.get("dest", "")
