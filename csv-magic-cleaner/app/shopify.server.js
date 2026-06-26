@@ -3,11 +3,12 @@ import {
   ApiVersion,
   AppDistribution,
   shopifyApp,
+  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
-// Plan name as defined in Shopify Managed Pricing (Partner Dashboard).
+// Plan name for the Shopify Billing API.
 export const MONTHLY_PLAN = "Pro Plan";
 
 const shopify = shopifyApp({
@@ -20,8 +21,18 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // Billing is handled by Shopify Managed Pricing (plans configured in the
-  // Partner Dashboard) — no code-defined billing config required.
+  // Shopify Billing API — Pro plan, $19.99 / 30 days.
+  billing: {
+    [MONTHLY_PLAN]: {
+      lineItems: [
+        {
+          amount: 19.99,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
+    },
+  },
 
   future: {
     expiringOfflineAccessTokens: true,

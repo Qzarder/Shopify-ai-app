@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useSubmit, useLoaderData, useActionData } from "react-router";
 import { Page, Layout, Card, DropZone, Button, Text, BlockStack, Banner, ProgressBar, Badge, Select, TextField, Checkbox } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 
 // Р“Р»РѕР±Р°Р»СЊРЅР°СЏ СЃСЃС‹Р»РєР° РЅР° С‚РІРѕР№ Р±СЌРєРµРЅРґ РЅР° Render
 const backendUrl = "https://magic-ai-cleaner-app.onrender.com";
@@ -18,8 +18,10 @@ async function authHeaders() {
 
 // Р­РљРЁР•Рќ: Р—Р°РїСѓСЃРєР°РµС‚ РїСЂРѕС†РµСЃСЃ РѕРїР»Р°С‚С‹
 export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, billing, session } = await authenticate.admin(request);
+  const { shop } = session;
 
+  const url = new URL(request.url);
   const formData = await request.formData();
 
   const fileId = formData.get("fileId");
@@ -106,58 +108,56 @@ export const action = async ({ request }) => {
     return { imported: created, total: products.length, errors: errors.slice(0, 5), duplicates };
   }
 
-  // No import payload — nothing to do here. Upgrades go through Shopify Managed
-  // Pricing (client redirects to the Shopify-hosted plan selection page).
-  return { success: true };
+  // No import payload → this is an upgrade request. Use the Shopify Billing API:
+  // require the Pro plan, and on failure request it (redirects the merchant to
+  // Shopify's hosted payment confirmation screen).
+  const pathParts = url.pathname.split("/");
+  const appHandle = pathParts[pathParts.indexOf("apps") + 1] || "csv-magic-cleaner";
+  const returnUrl = `https://${shop}/admin/apps/${appHandle}/app`;
+
+  try {
+    await billing.require({
+      plans: [MONTHLY_PLAN],
+      onFailure: async () => {
+        throw await billing.request({ plan: MONTHLY_PLAN, returnUrl });
+      },
+    });
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Response && error.status === 401) {
+      const redirectUrl = error.headers.get("X-Shopify-API-Request-Failure-Reauthorize-Url");
+      if (redirectUrl) {
+        return { redirectUrl };
+      }
+    }
+    throw error;
+  }
 };
 
 // Р›РћРђР”Р•Р : РџСЂРѕРІРµСЂРєР° СЃС‚Р°С‚СѓСЃР° РїРѕРґРїРёСЃРєРё
 export const loader = async ({ request }) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
 
-  // With Managed Pricing, plans are defined in the Partner Dashboard and billing
-  // is handled by Shopify. We read the merchant's live subscription state via the
-  // Admin API rather than the code-defined Billing API.
-  let isPro = false;
-  try {
-    const resp = await admin.graphql(
-      `#graphql
-      query {
-        currentAppInstallation {
-          activeSubscriptions { name status }
-        }
-      }`
-    );
-    const json = await resp.json();
-    const subs = json?.data?.currentAppInstallation?.activeSubscriptions ?? [];
-    isPro = subs.some((s) => s.status === "ACTIVE");
-  } catch (e) {
-    console.error("[BILLING] subscription check failed:", e);
-  }
-
-  // Shopify-hosted plan selection page (Managed Pricing).
-  // eslint-disable-next-line no-undef
-  const appHandle = process.env.SHOPIFY_APP_HANDLE || "csv-magic-cleaner";
-  const storeHandle = session.shop.replace(".myshopify.com", "");
-  const pricingUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
+  const checkResult = await billing.check({ plans: [MONTHLY_PLAN] });
+  const isPro = checkResult === true || checkResult?.hasActivePayment === true;
 
   return {
     shop: session.shop,
     isPro,
     shopDomain: session.shop,
-    pricingUrl,
   };
 };
 
 export default function Index() {
-  const { isPro, pricingUrl } = useLoaderData();
+  const { isPro } = useLoaderData();
   const submit = useSubmit();
   const actionData = useActionData();
 
-  // Redirect to the Shopify-hosted Managed Pricing plan selection page.
+  // Trigger the Shopify Billing API upgrade flow: POST to the action with no file
+  // payload → billing.require/request → Shopify's hosted payment screen.
   const goToPricing = useCallback(() => {
-    window.open(pricingUrl, "_top");
-  }, [pricingUrl]);
+    submit({}, { method: "post" });
+  }, [submit]);
 
   const [file, setFile] = useState(null);
   const [tone, setTone] = useState("Neutral & Professional");

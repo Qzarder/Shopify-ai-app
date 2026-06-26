@@ -1,20 +1,17 @@
 import { Page, Layout, Card, BlockStack, Text, List, Banner, Button } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useLoaderData } from "react-router";
+import { useSubmit } from "react-router";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
-  // eslint-disable-next-line no-undef
-  const appHandle = process.env.SHOPIFY_APP_HANDLE || "csv-magic-cleaner";
-  const storeHandle = session.shop.replace(".myshopify.com", "");
-  const pricingUrl = `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
-  return { pricingUrl };
+  await authenticate.admin(request);
+  return null;
 };
 
 export default function HowToUsePage() {
-  const { pricingUrl } = useLoaderData();
-  const goToPricing = () => window.open(pricingUrl, "_top");
+  const submit = useSubmit();
+  // Trigger the Billing API upgrade flow via the Home route action.
+  const goToPricing = () => submit({}, { method: "post", action: "/app" });
 
   return (
     <Page>
