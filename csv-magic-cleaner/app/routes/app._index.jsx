@@ -31,13 +31,25 @@ export const action = async ({ request }) => {
 
   if (downgrade) {
     // 1.2.3: merchants must be able to move from Pro back to Free without
-    // contacting support or reinstalling the app.
+    // contacting support or reinstalling the app, and the cancellation must be
+    // confirmed in the merchant's app charge history (Settings > Billing).
     const { appSubscriptions } = await billing.check({ plans: [MONTHLY_PLAN] });
     const activeSub = appSubscriptions?.[0];
-    if (activeSub) {
-      await billing.cancel({ subscriptionId: activeSub.id, prorate: true });
+
+    if (!activeSub) {
+      // Already on Free — nothing to cancel.
+      return { downgraded: true };
     }
-    return { downgraded: true };
+
+    try {
+      const cancelled = await billing.cancel({ subscriptionId: activeSub.id, prorate: true });
+      if (cancelled?.status !== "CANCELLED") {
+        return { downgradeError: `Subscription status after cancel: ${cancelled?.status || "unknown"}` };
+      }
+      return { downgraded: true };
+    } catch (err) {
+      return { downgradeError: err instanceof Error ? err.message : "Failed to cancel subscription" };
+    }
   }
 
   if (fileId || forceProductsJson) {
@@ -182,7 +194,7 @@ export default function Index() {
   }, [submit]);
 
   useEffect(() => {
-    if (actionData?.downgraded) {
+    if (actionData?.downgraded || actionData?.downgradeError) {
       setIsDowngrading(false);
     }
   }, [actionData]);
@@ -368,6 +380,9 @@ const handleImportShopify = () => {
 
               {actionData?.downgraded && !isPro && (
                 <Banner tone="success">You're now on the Free plan (up to 150 products/month).</Banner>
+              )}
+              {actionData?.downgradeError && (
+                <Banner tone="critical">Could not cancel your subscription: {actionData.downgradeError}. Please try again.</Banner>
               )}
 
               <DropZone onDrop={handleDropZoneDrop} accept=".csv">
