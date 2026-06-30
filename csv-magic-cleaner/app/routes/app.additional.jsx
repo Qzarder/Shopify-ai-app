@@ -1,19 +1,46 @@
-import { useEffect } from "react";
-import { Page, Layout, Card, BlockStack, Text, List, Banner, Button } from "@shopify/polaris";
+import { useEffect, useState } from "react";
+import { Page, Layout, Card, BlockStack, Text, List, Banner, Button, Badge } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useSubmit, useActionData } from "react-router";
+import { useSubmit, useActionData, useLoaderData } from "react-router";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
-  return null;
+  const { billing } = await authenticate.admin(request);
+  const checkResult = await billing.check({ plans: [MONTHLY_PLAN] });
+  const isPro = checkResult === true || checkResult?.hasActivePayment === true;
+  return { isPro };
 };
 
-// Own Billing API action so the upgrade flow runs on THIS page directly
+// Own Billing API action so upgrade/downgrade run on THIS page directly
 // (no bounce through the Home route).
 export const action = async ({ request }) => {
   const { billing, session } = await authenticate.admin(request);
   const { shop } = session;
+  const formData = await request.formData();
+  const downgrade = formData.get("downgrade") === "true";
+
+  if (downgrade) {
+    // 1.2.3: merchants must be able to move from Pro back to Free without
+    // contacting support or reinstalling the app, and the cancellation must be
+    // confirmed in the merchant's app charge history (Settings > Billing).
+    const { appSubscriptions } = await billing.check({ plans: [MONTHLY_PLAN] });
+    const activeSub = appSubscriptions?.[0];
+
+    if (!activeSub) {
+      return { downgraded: true };
+    }
+
+    try {
+      const cancelled = await billing.cancel({ subscriptionId: activeSub.id, prorate: true });
+      if (cancelled?.status !== "CANCELLED") {
+        return { downgradeError: `Subscription status after cancel: ${cancelled?.status || "unknown"}` };
+      }
+      return { downgraded: true };
+    } catch (err) {
+      return { downgradeError: err instanceof Error ? err.message : "Failed to cancel subscription" };
+    }
+  }
+
   const url = new URL(request.url);
   const pathParts = url.pathname.split("/");
   const appHandle = pathParts[pathParts.indexOf("apps") + 1] || "csv-magic-cleaner";
@@ -39,17 +66,29 @@ export const action = async ({ request }) => {
 };
 
 export default function HowToUsePage() {
+  const { isPro } = useLoaderData();
   const submit = useSubmit();
   const actionData = useActionData();
+  const [isDowngrading, setIsDowngrading] = useState(false);
 
   useEffect(() => {
     if (actionData?.redirectUrl) {
       window.open(actionData.redirectUrl, "_top");
     }
+    if (actionData?.downgraded || actionData?.downgradeError) {
+      setIsDowngrading(false);
+    }
   }, [actionData]);
 
   // Trigger the Billing API upgrade flow on this page directly.
   const goToPricing = () => submit({}, { method: "post" });
+
+  const goToDowngrade = () => {
+    setIsDowngrading(true);
+    const fd = new FormData();
+    fd.append("downgrade", "true");
+    submit(fd, { method: "post" });
+  };
 
   return (
     <Page>
@@ -58,19 +97,45 @@ export default function HowToUsePage() {
         <Layout.Section>
           <Banner tone="info">
             <BlockStack gap="200">
-              <Text as="p" variant="bodyMd" fontWeight="bold">Free plan: process up to 150 products per month — no payment required to get started.</Text>
-              <Text as="p" variant="bodyMd">
-                Once you reach the 150-product limit, upgrade to the Pro plan ($19.99/mo).
-                All payments are handled securely through Shopify's checkout — no external accounts or credit cards entered outside of Shopify.
-              </Text>
-              <Text as="p" variant="bodyMd">
-                Pro plan unlocks: <strong>unlimited products</strong>, AI-generated <strong>SEO titles</strong>, <strong>meta descriptions</strong>, and <strong>image alt text</strong>.
-              </Text>
-              <div>
-                <Button onClick={goToPricing} variant="primary">
-                  Upgrade to Pro — $19.99/mo
-                </Button>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Text as="p" variant="bodyMd" fontWeight="bold">
+                  {isPro ? "You're on the Pro plan" : "Free plan: process up to 150 products per month"}
+                </Text>
+                {isPro && <Badge tone="success">Pro Plan Active</Badge>}
               </div>
+              {isPro ? (
+                <Text as="p" variant="bodyMd">
+                  $19.99/mo, unlimited products. You can cancel anytime — your plan moves back to Free
+                  immediately and the cancellation is reflected in your store's billing history.
+                </Text>
+              ) : (
+                <>
+                  <Text as="p" variant="bodyMd">
+                    Once you reach the 150-product limit, upgrade to the Pro plan ($19.99/mo).
+                    All payments are handled securely through Shopify's checkout — no external accounts or credit cards entered outside of Shopify.
+                  </Text>
+                  <Text as="p" variant="bodyMd">
+                    Pro plan unlocks: <strong>unlimited products</strong>, AI-generated <strong>SEO titles</strong>, <strong>meta descriptions</strong>, and <strong>image alt text</strong>.
+                  </Text>
+                </>
+              )}
+              <div>
+                {isPro ? (
+                  <Button onClick={goToDowngrade} variant="primary" tone="critical" loading={isDowngrading} disabled={isDowngrading}>
+                    Downgrade to Free
+                  </Button>
+                ) : (
+                  <Button onClick={goToPricing} variant="primary">
+                    Upgrade to Pro — $19.99/mo
+                  </Button>
+                )}
+              </div>
+              {actionData?.downgraded && (
+                <Banner tone="success">You're now on the Free plan (up to 150 products/month).</Banner>
+              )}
+              {actionData?.downgradeError && (
+                <Banner tone="critical">Could not cancel your subscription: {actionData.downgradeError}. Please try again.</Banner>
+              )}
             </BlockStack>
           </Banner>
         </Layout.Section>

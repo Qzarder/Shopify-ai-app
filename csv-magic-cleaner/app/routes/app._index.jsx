@@ -27,30 +27,6 @@ export const action = async ({ request }) => {
   const fileId = formData.get("fileId");
   const forceImport = formData.get("forceImport") === "true";
   const forceProductsJson = formData.get("forceProducts");
-  const downgrade = formData.get("downgrade") === "true";
-
-  if (downgrade) {
-    // 1.2.3: merchants must be able to move from Pro back to Free without
-    // contacting support or reinstalling the app, and the cancellation must be
-    // confirmed in the merchant's app charge history (Settings > Billing).
-    const { appSubscriptions } = await billing.check({ plans: [MONTHLY_PLAN] });
-    const activeSub = appSubscriptions?.[0];
-
-    if (!activeSub) {
-      // Already on Free — nothing to cancel.
-      return { downgraded: true };
-    }
-
-    try {
-      const cancelled = await billing.cancel({ subscriptionId: activeSub.id, prorate: true });
-      if (cancelled?.status !== "CANCELLED") {
-        return { downgradeError: `Subscription status after cancel: ${cancelled?.status || "unknown"}` };
-      }
-      return { downgraded: true };
-    } catch (err) {
-      return { downgradeError: err instanceof Error ? err.message : "Failed to cancel subscription" };
-    }
-  }
 
   if (fileId || forceProductsJson) {
     let products;
@@ -182,22 +158,6 @@ export default function Index() {
   const goToPricing = useCallback(() => {
     submit({}, { method: "post" });
   }, [submit]);
-
-  // 1.2.3: let merchants downgrade from Pro back to Free in-app, no support
-  // ticket or reinstall required. Cancels the active subscription directly.
-  const [isDowngrading, setIsDowngrading] = useState(false);
-  const goToDowngrade = useCallback(() => {
-    setIsDowngrading(true);
-    const fd = new FormData();
-    fd.append("downgrade", "true");
-    submit(fd, { method: "post" });
-  }, [submit]);
-
-  useEffect(() => {
-    if (actionData?.downgraded || actionData?.downgradeError) {
-      setIsDowngrading(false);
-    }
-  }, [actionData]);
 
   const [file, setFile] = useState(null);
   const [tone, setTone] = useState("Neutral & Professional");
@@ -362,27 +322,6 @@ const handleImportShopify = () => {
                     </div>
                   </BlockStack>
                 </Banner>
-              )}
-
-              {/* 1.2.3: merchants must be able to downgrade without contacting support */}
-              {isPro && (
-                <Banner tone="info">
-                  <BlockStack gap="100">
-                    <Text as="p" variant="bodyMd">You're on the Pro plan ($19.99/mo, unlimited products). You can cancel anytime — your plan will move back to Free immediately and the change is reflected in your store's billing history.</Text>
-                    <div style={{ marginTop: "8px" }}>
-                      <Button onClick={goToDowngrade} variant="plain" tone="critical" loading={isDowngrading} disabled={isDowngrading}>
-                        Downgrade to Free
-                      </Button>
-                    </div>
-                  </BlockStack>
-                </Banner>
-              )}
-
-              {actionData?.downgraded && !isPro && (
-                <Banner tone="success">You're now on the Free plan (up to 150 products/month).</Banner>
-              )}
-              {actionData?.downgradeError && (
-                <Banner tone="critical">Could not cancel your subscription: {actionData.downgradeError}. Please try again.</Banner>
               )}
 
               <DropZone onDrop={handleDropZoneDrop} accept=".csv">
